@@ -1,8 +1,7 @@
-import { ParsedEmail } from '@/types/database'
 import { z } from 'zod'
 
 // Mock AI implementation for now
-export async function parseEmailWithAI(emailBody: string, subject: string): Promise<ParsedEmail> {
+export async function parseEmailWithAI(emailBody: string, subject: string): Promise<any> {
   // Mock implementation - in real implementation, use actual AI SDK
   return {
     date_submitted: new Date().toISOString().split('T')[0],

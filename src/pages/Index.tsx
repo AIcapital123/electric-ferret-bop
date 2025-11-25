@@ -1,19 +1,28 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+import { SidebarProvider } from '@/components/ui/sidebar'
+import { AppSidebar } from '@/components/layout/app-sidebar'
+import { AppHeader } from '@/components/layout/app-header'
+import { DealsDashboard } from '@/components/deals/deals-dashboard'
+import { useEffect } from 'react'
+import { emailSyncService } from '@/components/email-sync/email-sync-service'
 
-import { MadeWithDyad } from "@/components/made-with-dyad";
+export default function Index() {
+  useEffect(() => {
+    // Start auto-sync when component mounts
+    emailSyncService.startAutoSync(15) // Sync every 15 minutes
+    
+    return () => {
+      // Clean up on unmount
+      emailSyncService.stopAutoSync()
+    }
+  }, [])
 
-const Index = () => {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold mb-4">Welcome to Your Blank App</h1>
-        <p className="text-xl text-gray-600">
-          Start building your amazing project here!
-        </p>
-      </div>
-      <MadeWithDyad />
-    </div>
-  );
-};
-
-export default Index;
+    <SidebarProvider>
+      <AppSidebar />
+      <main className="flex-1">
+        <AppHeader />
+        <DealsDashboard />
+      </main>
+    </SidebarProvider>
+  )
+}

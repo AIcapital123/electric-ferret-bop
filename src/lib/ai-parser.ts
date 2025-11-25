@@ -1,4 +1,4 @@
-import { ParsedEmail } from '@/lib/email-parser'
+import { ParsedEmail } from '@/types/database'
 import { z } from 'zod'
 
 // Mock AI implementation for now

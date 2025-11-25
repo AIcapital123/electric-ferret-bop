@@ -160,14 +160,14 @@ export function DealsDashboard() {
             <div>
               <label className="text-sm font-medium mb-2 block">Status</label>
               <Select
-                value={filters.status || ''}
-                onValueChange={(value) => handleFilterChange('status', value)}
+                value={filters.status || 'all'}
+                onValueChange={(value) => handleFilterChange('status', value === 'all' ? undefined : value)}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="All statuses" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All statuses</SelectItem>
+                  <SelectItem value="all">All statuses</SelectItem>
                   <SelectItem value="new">New</SelectItem>
                   <SelectItem value="in_progress">In Progress</SelectItem>
                   <SelectItem value="funded">Funded</SelectItem>

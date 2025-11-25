@@ -120,14 +120,14 @@ export function DealsDashboard() {
             <div>
               <label className="text-sm font-medium mb-2 block">Loan Type</label>
               <Select
-                value={filters.loanType || ''}
-                onValueChange={(value) => handleFilterChange('loanType', value)}
+                value={filters.loanType || 'all'}
+                onValueChange={(value) => handleFilterChange('loanType', value === 'all' ? undefined : value)}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="All types" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All types</SelectItem>
+                  <SelectItem value="all">All types</SelectItem>
                   <SelectItem value="Personal Loan">Personal Loan</SelectItem>
                   <SelectItem value="Business Loan">Business Loan</SelectItem>
                   <SelectItem value="Equipment Leasing">Equipment Leasing</SelectItem>

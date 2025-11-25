@@ -1,6 +1,6 @@
 import { ParsedEmail } from '@/lib/email-parser'
 
-export interface ParsedEmail {
+export interface InternalParsedEmail {
   date_submitted: string
   loan_type: string
   legal_company_name: string
@@ -19,7 +19,7 @@ export interface ParsedEmail {
   referral?: string
 }
 
-export function parseCognitoFormsEmail(emailBody: string, subject: string): ParsedEmail {
+export function parseCognitoFormsEmail(emailBody: string, subject: string): InternalParsedEmail {
   // Extract loan type from subject
   const loanTypeMatch = subject.match(/(Personal Loan|Business Loan|Equipment Leasing|Hard Money|Commercial Real Estate)/i)
   const loan_type = loanTypeMatch ? loanTypeMatch[1] : 'Unknown'

@@ -34,10 +34,13 @@ function parseCognitoFormsEmail(emailBody: string, subject: string): ParsedEmail
   const loan_type = loanTypeMatch ? loanTypeMatch[1] : "Unknown"
 
   const fields: Record<string, string> = {}
-  const lines = emailBody.split(/\n|\r\n/)
+  const lines = emailBody.split(/\r?\n/)
 
   for (const line of lines) {
-    const match = line.match(/^([^:–]+)[:–]\s*(.+)$/)
+    // Support colon, en/em dash, and " - " delimiters
+    const m1 = line.match(/^([^:–—]+)\s*[:–—]\s*(.+)$/)
+    const m2 = line.match(/^([^-]+?)\s+-\s+(.+)$/)
+    const match = m1 || m2
     if (match) {
       const key = match[1].trim().toLowerCase().replace(/\s+/g, "_")
       const value = match[2].trim()
@@ -45,35 +48,98 @@ function parseCognitoFormsEmail(emailBody: string, subject: string): ParsedEmail
     }
   }
 
-  const amountStr = fields.loan_amount_sought || fields.amount || fields["loan_amount"] || "0"
-  const loan_amount_sought = parseFloat(amountStr.replace(/[$,\s]/g, "")) || 0
+  const getFirst = (keys: string[]): string | undefined => {
+    for (const k of keys) {
+      const v = fields[k]
+      if (v) return v
+    }
+    return undefined
+  }
 
-  const dateStr = fields.date_submitted || fields.submitted_date || new Date().toISOString()
-  const date_submitted = new Date(dateStr).toISOString().split("T")[0]
+  const normalizeCurrency = (value?: string): number => {
+    if (!value) return 0
+    const cleaned = value.replace(/[^\d.]/g, "")
+    const num = parseFloat(cleaned)
+    return isNaN(num) ? 0 : num
+  }
 
-  const salaryVal = fields.salary ? parseFloat(fields.salary.replace(/[$,\s]/g, "")) : undefined
+  const normalizeDate = (value?: string): string => {
+    const today = new Date().toISOString().split("T")[0]
+    if (!value) return today
+
+    const d1 = new Date(value)
+    if (!isNaN(d1.getTime())) return d1.toISOString().split("T")[0]
+
+    const mdy = value.match(/^\s*(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\s*$/)
+    if (mdy) {
+      const mm = parseInt(mdy[1], 10) - 1
+      const dd = parseInt(mdy[2], 10)
+      const yyyy = parseInt(mdy[3].length === 2 ? `20${mdy[3]}` : mdy[3], 10)
+      const d = new Date(yyyy, mm, dd)
+      if (!isNaN(d.getTime())) return d.toISOString().split("T")[0]
+    }
+
+    const months = [
+      "january","february","march","april","may","june",
+      "july","august","september","october","november","december"
+    ]
+    const mon = months.findIndex(m => value.toLowerCase().includes(m))
+    if (mon >= 0) {
+      const dayMatch = value.match(/(\d{1,2})(?:st|nd|rd|th)?/)
+      const yearMatch = value.match(/(\d{4})/)
+      const dd = dayMatch ? parseInt(dayMatch[1], 10) : 1
+      const yyyy = yearMatch ? parseInt(yearMatch[1], 10) : new Date().getFullYear()
+      const d = new Date(yyyy, mon, dd)
+      if (!isNaN(d.getTime())) return d.toISOString().split("T")[0]
+    }
+
+    return today
+  }
+
+  const legalCompanyKeys = ["legal_company_name","company_name","business_name","legal_business_name","company","business"]
+  const clientNameKeys = ["client_name","name","full_name","applicant_name","contact_name"]
+  const emailKeys = ["client_email","email","email_address"]
+  const phoneKeys = ["client_phone","phone","telephone","mobile","phone_number"]
+  const amountKeys = ["loan_amount_sought","loan_amount","amount_requested","requested_amount","total_loan_amount","loan_amount"]
+  const cityKeys = ["city","town"]
+  const stateKeys = ["state","province"]
+  const zipKeys = ["zip","postal_code","zip_code"]
+  const purposeKeys = ["purpose","loan_purpose","purpose_of_loan","use_of_funds"]
+  const employmentTypeKeys = ["employment_type","employment_status"]
+  const employerKeys = ["employer_name","employer","company","business"]
+  const jobTitleKeys = ["job_title","position","title"]
+  const salaryKeys = ["salary","income","annual_income","monthly_income"]
+  const referralKeys = ["referral","referral_name","source","how_did_you_hear_about_us"]
+  const dateKeys = ["date_submitted","submitted_date","submission_date","date"]
+
+  const amountStr = getFirst(amountKeys)
+  const loan_amount_sought = normalizeCurrency(amountStr)
+
+  const dateStr = getFirst(dateKeys) || new Date().toISOString()
+  const date_submitted = normalizeDate(dateStr)
+
+  const subjectNameMatch = subject.match(/application\s*[-:]\s*(.+)$/i)
+  const subjectName = subjectNameMatch ? subjectNameMatch[1].trim() : undefined
+
+  const salaryVal = normalizeCurrency(getFirst(salaryKeys))
 
   return {
     date_submitted,
     loan_type,
-    legal_company_name: fields.legal_company_name || fields.company_name || "N/A",
-    client_name:
-      fields.client_name ||
-      fields.name ||
-      `${fields.first_name || ""} ${fields.last_name || ""}`.trim() ||
-      "Unknown",
-    client_email: fields.client_email || fields.email,
-    client_phone: fields.client_phone || fields.phone,
+    legal_company_name: getFirst(legalCompanyKeys) || "N/A",
+    client_name: getFirst(clientNameKeys) || subjectName || "Unknown",
+    client_email: getFirst(emailKeys),
+    client_phone: getFirst(phoneKeys),
     loan_amount_sought,
-    city: fields.city,
-    state: fields.state,
-    zip: fields.zip,
-    purpose: fields.purpose || fields.loan_purpose,
-    employment_type: fields.employment_type,
-    employer_name: fields.employer_name,
-    job_title: fields.job_title,
+    city: getFirst(cityKeys),
+    state: getFirst(stateKeys),
+    zip: getFirst(zipKeys),
+    purpose: getFirst(purposeKeys),
+    employment_type: getFirst(employmentTypeKeys),
+    employer_name: getFirst(employerKeys),
+    job_title: getFirst(jobTitleKeys),
     salary: salaryVal,
-    referral: fields.referral || fields.referral_name,
+    referral: getFirst(referralKeys),
   }
 }
 

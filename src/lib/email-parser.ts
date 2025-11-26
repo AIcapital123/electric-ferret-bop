@@ -121,7 +121,6 @@ export function parseCognitoFormsEmail(emailBody: string, subject: string): Pars
 export function isCognitoFormsEmail(from: string, subject: string): boolean {
   const isFromCognito = from.includes('cognitoforms.com') || from.includes('notifications@cognitoforms.com')
   const hasLoanType = /(Personal Loan|Business Loan|Equipment Leasing|Hard Money|Commercial Real Estate)/i.test(subject)
-  const hasApplication = /application/i.test(subject)
-
-  return isFromCognito && hasApplication && hasLoanType
+  // Accept if from Cognito and subject contains a known loan type (no need for 'application')
+  return isFromCognito && hasLoanType
 }

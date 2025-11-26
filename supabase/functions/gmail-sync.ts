@@ -306,9 +306,10 @@ function parseCognitoFormsEmail(emailBody: string, subject: string): ParsedEmail
 // Gmail query helpers
 // ------------------------------------
 function buildGmailQuery(body: SyncRequestBody): string {
+  // Base query: Cognito notifications addressed to deals@gokapital.com
   const baseQuery =
     body?.q ??
-    "from:notifications@cognitoforms.com subject:(application) to:deals@gokapital.com"
+    "from:notifications@cognitoforms.com to:deals@gokapital.com"
 
   const today = clampDate(new Date())
   const twoYearsAgo = clampDate(new Date(today.getFullYear() - 2, today.getMonth(), today.getDate()))

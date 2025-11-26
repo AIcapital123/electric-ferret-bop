@@ -150,7 +150,7 @@ export function DealsDashboard() {
     })
   }
 
-  // Realtime: notify on new deals that match currently applied filters; do not mutate cache or totals
+  // Realtime: notify on new deals matching filter; do not mutate cache or totals
   useEffect(() => {
     const channel = supabase
       .channel('realtime-deals')
@@ -172,6 +172,8 @@ export function DealsDashboard() {
 
           if (inRange && loanTypeOk && statusOk && minOk && maxOk) {
             setNewDealsCount((c) => c + 1)
+
+            // Immediate 5s notification
             toast.info('New Deal', {
               description: `${newDeal.client_name} • ${newDeal.loan_type} • $${Number(newDeal.loan_amount_sought || 0).toLocaleString()}`,
               action: {
@@ -180,8 +182,24 @@ export function DealsDashboard() {
                   applyRefresh()
                   setNewDealsCount(0)
                 }
-              }
+              },
+              duration: 5000
             })
+
+            // Final reminder after 30 seconds (also 5s)
+            setTimeout(() => {
+              toast.info('New Deal Reminder', {
+                description: `${newDeal.client_name} • ${newDeal.loan_type} • $${Number(newDeal.loan_amount_sought || 0).toLocaleString()}`,
+                action: {
+                  label: 'Refresh',
+                  onClick: () => {
+                    applyRefresh()
+                    setNewDealsCount(0)
+                  }
+                },
+                duration: 5000
+              })
+            }, 30000)
           }
         }
       )

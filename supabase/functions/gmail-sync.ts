@@ -191,96 +191,101 @@ function categorizeLoanType(subject: string, body: string): string {
   return "Other";
 }
 
-function parseCognitoFormsEmail(emailBody: string, subject: string): ParsedEmail {
-  // Derive loan type from subject/body first
-  const loan_type = categorizeLoanType(subject, emailBody);
-
-  const fields: Record<string, string> = {};
-  const lines = emailBody.split(/\r?\n/);
+function parseCognitoFormsEmail(
+  emailBody: string,
+  subject: string,
+  recognizedTypes: Set<string>
+): ParsedEmail {
+  const fields: Record<string, string> = {}
+  const lines = emailBody.split(/\r?\n/)
 
   for (const line of lines) {
-    const m1 = line.match(/^([^:–—]+)\s*[:–—]\s*(.+)$/);
-    const m2 = line.match(/^([^-]+?)\s+-\s+(.+)$/);
-    const match = m1 || m2;
+    const m1 = line.match(/^([^:–—]+)\s*[:–—]\s*(.+)$/)
+    const m2 = line.match(/^([^-]+?)\s+-\s+(.+)$/)
+    const match = m1 || m2
     if (match) {
-      const key = match[1].trim().toLowerCase().replace(/\s+/g, "_");
-      const value = match[2].trim();
-      fields[key] = value;
+      const key = match[1].trim().toLowerCase().replace(/\s+/g, "_")
+      const value = match[2].trim()
+      fields[key] = value
     }
   }
 
   const getFirst = (keys: string[]): string | undefined => {
     for (const k of keys) {
-      const v = fields[k];
-      if (v) return v;
+      const v = fields[k]
+      if (v) return v
     }
-    return undefined;
-  };
+    return undefined
+  }
 
   const normalizeCurrency = (value?: string): number => {
-    if (!value) return 0;
-    const cleaned = value.replace(/[^\d.]/g, "");
-    const num = parseFloat(cleaned);
-    return isNaN(num) ? 0 : num;
-  };
+    if (!value) return 0
+    const cleaned = value.replace(/[^\d.]/g, "")
+    const num = parseFloat(cleaned)
+    return isNaN(num) ? 0 : num
+  }
 
   const normalizeDate = (value?: string): string => {
-    const today = new Date().toISOString().split("T")[0];
-    if (!value) return today;
+    const today = new Date().toISOString().split("T")[0]
+    if (!value) return today
 
-    const d1 = new Date(value);
-    if (!isNaN(d1.getTime())) return d1.toISOString().split("T")[0];
+    const d1 = new Date(value)
+    if (!isNaN(d1.getTime())) return d1.toISOString().split("T")[0]
 
-    const mdy = value.match(/^\s*(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\s*$/);
+    const mdy = value.match(/^\s*(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\s*$/)
     if (mdy) {
-      const mm = parseInt(mdy[1], 10) - 1;
-      const dd = parseInt(mdy[2], 10);
-      const yyyy = parseInt(mdy[3].length === 2 ? `20${mdy[3]}` : mdy[3], 10);
-      const d = new Date(yyyy, mm, dd);
-      if (!isNaN(d.getTime())) return d.toISOString().split("T")[0];
+      const mm = parseInt(mdy[1], 10) - 1
+      const dd = parseInt(mdy[2], 10)
+      const yyyy = parseInt(mdy[3].length === 2 ? `20${mdy[3]}` : mdy[3], 10)
+      const d = new Date(yyyy, mm, dd)
+      if (!isNaN(d.getTime())) return d.toISOString().split("T")[0]
     }
 
     const months = [
       "january","february","march","april","may","june",
       "july","august","september","october","november","december"
-    ];
-    const mon = months.findIndex(m => value.toLowerCase().includes(m));
+    ]
+    const mon = months.findIndex(m => value.toLowerCase().includes(m))
     if (mon >= 0) {
-      const dayMatch = value.match(/(\d{1,2})(?:st|nd|rd|th)?/);
-      const yearMatch = value.match(/(\d{4})/);
-      const dd = dayMatch ? parseInt(dayMatch[1], 10) : 1;
-      const yyyy = yearMatch ? parseInt(yearMatch[1], 10) : new Date().getFullYear();
-      const d = new Date(yyyy, mon, dd);
-      if (!isNaN(d.getTime())) return d.toISOString().split("T")[0];
+      const dayMatch = value.match(/(\d{1,2})(?:st|nd|rd|th)?/)
+      const yearMatch = value.match(/(\d{4})/)
+      const dd = dayMatch ? parseInt(dayMatch[1], 10) : 1
+      const yyyy = yearMatch ? parseInt(yearMatch[1], 10) : new Date().getFullYear()
+      const d = new Date(yyyy, mon, dd)
+      if (!isNaN(d.getTime())) return d.toISOString().split("T")[0]
     }
 
-    return today;
-  };
+    return today
+  }
 
-  const legalCompanyKeys = ["legal_company_name","company_name","business_name","legal_business_name","company","business"];
-  const clientNameKeys = ["client_name","name","full_name","applicant_name","contact_name"];
-  const emailKeys = ["client_email","email","email_address"];
-  const phoneKeys = ["client_phone","phone","telephone","mobile","phone_number"];
-  const amountKeys = ["loan_amount_sought","loan_amount","amount_requested","requested_amount","total_loan_amount","loan_amount"];
-  const cityKeys = ["city","town"];
-  const stateKeys = ["state","province"];
-  const zipKeys = ["zip","postal_code","zip_code"];
-  const purposeKeys = ["purpose","loan_purpose","purpose_of_loan","use_of_funds"];
-  const employmentTypeKeys = ["employment_type","employment_status"];
-  const employerKeys = ["employer_name","employer","company","business"];
-  const jobTitleKeys = ["job_title","position","title"];
-  const salaryKeys = ["salary","income","annual_income","monthly_income"];
-  const referralKeys = ["referral","referral_name","source","how_did_you_hear_about_us"];
-  const dateKeys = ["date_submitted","submitted_date","submission_date","date"];
+  const legalCompanyKeys = ["legal_company_name","company_name","business_name","legal_business_name","company","business"]
+  const clientNameKeys = ["client_name","name","full_name","applicant_name","contact_name"]
+  const emailKeys = ["client_email","email","email_address"]
+  const phoneKeys = ["client_phone","phone","telephone","mobile","phone_number"]
+  const amountKeys = ["loan_amount_sought","loan_amount","amount_requested","requested_amount","total_loan_amount","loan_amount"]
+  const cityKeys = ["city","town"]
+  const stateKeys = ["state","province"]
+  const zipKeys = ["zip","postal_code","zip_code"]
+  const purposeKeys = ["purpose","loan_purpose","purpose_of_loan","use_of_funds"]
+  const employmentTypeKeys = ["employment_type","employment_status"]
+  const employerKeys = ["employer_name","employer","company","business"]
+  const jobTitleKeys = ["job_title","position","title"]
+  const salaryKeys = ["salary","income","annual_income","monthly_income"]
+  const referralKeys = ["referral","referral_name","source","how_did_you_hear_about_us"]
+  const dateKeys = ["date_submitted","submitted_date","submission_date","date"]
 
-  const amountStr = getFirst(amountKeys);
-  const loan_amount_sought = normalizeCurrency(amountStr);
-  const dateStr = getFirst(dateKeys) || new Date().toISOString();
-  const date_submitted = normalizeDate(dateStr);
+  // Loan type from subject restricted to recognized set
+  const matchedType = matchRecognizedLoanType(subject, recognizedTypes)
+  const loan_type = matchedType ?? "Other"
 
-  const subjectNameMatch = subject.match(/application\s*[-:]\s*(.+)$/i);
-  const subjectName = subjectNameMatch ? subjectNameMatch[1].trim() : undefined;
-  const salaryVal = normalizeCurrency(getFirst(salaryKeys));
+  const amountStr = getFirst(amountKeys)
+  const loan_amount_sought = normalizeCurrency(amountStr)
+  const dateStr = getFirst(dateKeys) || new Date().toISOString()
+  const date_submitted = normalizeDate(dateStr)
+
+  const subjectNameMatch = subject.match(/application\s*[-:]\s*(.+)$/i)
+  const subjectName = subjectNameMatch ? subjectNameMatch[1].trim() : undefined
+  const salaryVal = normalizeCurrency(getFirst(salaryKeys))
 
   return {
     date_submitted,
@@ -299,7 +304,93 @@ function parseCognitoFormsEmail(emailBody: string, subject: string): ParsedEmail
     job_title: getFirst(jobTitleKeys),
     salary: salaryVal,
     referral: getFirst(referralKeys),
-  };
+  }
+}
+
+// Sample recognized loan types from the last 4 months of Cognito emails
+async function sampleRecognizedLoanTypes(accessToken: string): Promise<Set<string>> {
+  const recognized = new Set<string>()
+  const baseQuery = "from:notifications@cognitoforms.com to:deals@gokapital.com"
+
+  const today = clampDate(new Date())
+  const fourMonthsAgo = clampDate(new Date(today.getFullYear(), today.getMonth() - 4, today.getDate()))
+  const tomorrow = clampDate(new Date(today))
+  tomorrow.setDate(tomorrow.getDate() + 1)
+
+  const q = `${baseQuery} after:${formatGmailDate(fourMonthsAgo)} before:${formatGmailDate(tomorrow)}`
+  const ids = await searchMessageIds(accessToken, q, 200)
+
+  for (const id of ids) {
+    const gm = await getMessage(accessToken, id)
+    const headers = (gm.payload?.headers || []) as GmailMessageHeader[]
+    const subject = headerValue(headers, "Subject") || ""
+
+    // Extract potential loan type tokens from subject by looking for capitalized phrases
+    // We only add exact phrases we see in real subjects
+    const candidates = subject
+      .split(/[-–—|·•:]/) // split common separators
+      .map(s => s.trim())
+      .filter(s => s.length > 0)
+
+    for (const cand of candidates) {
+      // Keep medium-length phrases that likely represent a type (heuristic)
+      if (cand.length >= 3 && cand.length <= 40) {
+        // Avoid generic terms; store as-is
+        recognized.add(cand)
+      }
+    }
+
+    // Also try to extract "Loan Type" from the body if present
+    const raw = extractPlainTextFromPayload(gm.payload)
+    const lines = raw.split(/\r?\n/)
+    for (const line of lines) {
+      const m = line.match(/^\s*Loan\s*Type\s*[:–—-]\s*(.+)\s*$/i)
+      if (m && m[1]) {
+        const val = m[1].trim()
+        if (val.length >= 3 && val.length <= 40) {
+          recognized.add(val)
+        }
+      }
+    }
+  }
+
+  // Normalize set by trimming and collapsing to case-insensitive uniqueness
+  const normalized = new Set<string>()
+  for (const t of recognized) {
+    normalized.add(t.trim())
+  }
+  return normalized
+}
+
+// Decide if subject contains one of the recognized loan types (case-insensitive exact phrase)
+function matchRecognizedLoanType(subject: string, recognized: Set<string>): string | null {
+  const subjLower = subject.toLowerCase()
+  for (const type of recognized) {
+    const typeLower = type.toLowerCase()
+    if (typeLower && subjLower.includes(typeLower)) {
+      return type
+    }
+  }
+  return null
+}
+
+function isCognitoApplicationEmail(from: string, subject: string): boolean {
+  const isCognito =
+    from.includes("cognitoforms.com") || from.includes("notifications@cognitoforms.com")
+  return isCognito
+}
+
+// Build a date string for Gmail query "YYYY/MM/DD"
+function formatGmailDate(d: Date): string {
+  const yyyy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, "0")
+  const dd = String(d.getDate()).padStart(2, "0")
+  return `${yyyy}/${mm}/${dd}`
+}
+
+// Helper to compute clamped date (strip time)
+function clampDate(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate())
 }
 
 // ------------------------------------
@@ -409,15 +500,6 @@ async function getMessage(accessToken: string, id: string): Promise<any> {
   return json
 }
 
-function isCognitoApplicationEmail(from: string, subject: string): boolean {
-  const isCognito =
-    from.includes("cognitoforms.com") || from.includes("notifications@cognitoforms.com");
-  // Accept if subject mentions "application" OR contains recognizable loan-type keywords
-  const hasApplication = /application/i.test(subject);
-  const hasLoanType = normalizeLoanType(subject) !== "Other";
-  return isCognito && (hasApplication || hasLoanType);
-}
-
 function extractEmailMetaFromGmailMessage(gm: any): EmailMeta {
   const headers = (gm.payload?.headers || []) as GmailMessageHeader[]
   const from = headerValue(headers, "From") || ""
@@ -504,6 +586,7 @@ async function processGmailMessage(
   supabase: any,
   accessToken: string,
   messageId: string,
+  recognizedTypes: Set<string>,
   parsedCollector: ParsedEmail[]
 ): Promise<number> {
   const gm = await getMessage(accessToken, messageId)
@@ -513,7 +596,7 @@ async function processGmailMessage(
     return 0
   }
 
-  const parsed = parseCognitoFormsEmail(meta.raw_body, meta.subject)
+  const parsed = parseCognitoFormsEmail(meta.raw_body, meta.subject, recognizedTypes)
   parsedCollector.push(parsed)
 
   const exists = await emailExists(supabase, meta.message_id)
@@ -523,9 +606,56 @@ async function processGmailMessage(
   return ok ? 1 : 0
 }
 
+// Build recognized types from test inbox (fallback)
+function sampleRecognizedLoanTypesTest(): Set<string> {
+  const set = new Set<string>()
+  set.add("Personal Loan")
+  set.add("Business Loan")
+  set.add("Equipment Leasing")
+  set.add("Hard Money")
+  set.add("Commercial Real Estate")
+  return set
+}
+
+// Live query processing uses recognized types sampled from last 4 months
+async function processLiveQuery(
+  supabase: any,
+  body: SyncRequestBody
+): Promise<{ parsed: ParsedEmail[]; inserted: number } | { error: string }> {
+  if (!supabase) return { error: "Supabase env not set" }
+
+  const parsed: ParsedEmail[] = []
+  let inserted = 0
+
+  const maxResults = Number(body?.maxResults ?? 10)
+  const query = buildGmailQuery(body)
+
+  const accessToken = await getAccessToken()
+
+  // Sample loan types over last 4 months
+  let recognizedTypes = new Set<string>()
+  try {
+    recognizedTypes = await sampleRecognizedLoanTypes(accessToken)
+  } catch (e) {
+    console.warn("Sampling loan types failed; proceeding with empty set:", e)
+    recognizedTypes = new Set<string>()
+  }
+
+  const ids = await searchMessageIds(accessToken, query, maxResults)
+
+  for (const id of ids) {
+    inserted += await processGmailMessage(supabase, accessToken, id, recognizedTypes, parsed)
+  }
+
+  return { parsed, inserted }
+}
+
+// Test mode uses a small built-in set of recognized types from test messages
 async function processTestInbox(supabase: any): Promise<{ parsed: ParsedEmail[]; inserted: number }> {
   const parsed: ParsedEmail[] = []
   let inserted = 0
+
+  const recognizedTypes = sampleRecognizedLoanTypesTest()
 
   const inbox = [
     {
@@ -553,7 +683,7 @@ Date Submitted: 2024-01-15`,
   ]
 
   for (const msg of inbox) {
-    const p = parseCognitoFormsEmail(msg.body, msg.subject)
+    const p = parseCognitoFormsEmail(msg.body, msg.subject, recognizedTypes)
     parsed.push(p)
 
     if (supabase) {
@@ -570,31 +700,8 @@ Date Submitted: 2024-01-15`,
         if (ok) inserted += 1
       }
     } else {
-      // No Supabase env: simulate insert count so UI still shows activity
       inserted += 1
     }
-  }
-
-  return { parsed, inserted }
-}
-
-async function processLiveQuery(
-  supabase: any,
-  body: SyncRequestBody
-): Promise<{ parsed: ParsedEmail[]; inserted: number } | { error: string }> {
-  if (!supabase) return { error: "Supabase env not set" }
-
-  const parsed: ParsedEmail[] = []
-  let inserted = 0
-
-  const maxResults = Number(body?.maxResults ?? 10)
-  const query = buildGmailQuery(body)
-
-  const accessToken = await getAccessToken()
-  const ids = await searchMessageIds(accessToken, query, maxResults)
-
-  for (const id of ids) {
-    inserted += await processGmailMessage(supabase, accessToken, id, parsed)
   }
 
   return { parsed, inserted }

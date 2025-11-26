@@ -65,7 +65,7 @@ export function DealsDashboard() {
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold">{t('app_title')}</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{t('app_title')}</h1>
         <Button onClick={() => refetch()} variant="outline" size="sm">
           <RefreshCw className="h-4 w-4 mr-2" />
           {t('refresh')}
@@ -191,7 +191,7 @@ export function DealsDashboard() {
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <Table>
-              <TableHeader>
+              <TableHeader className="bg-muted/40">
                 <TableRow>
                   <TableHead className="w-[140px]">{t('table_date_submitted')}</TableHead>
                   <TableHead>{t('table_loan_type')}</TableHead>
@@ -215,10 +215,13 @@ export function DealsDashboard() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  deals?.map((deal) => (
+                  deals?.map((deal, idx) => (
                     <TableRow
                       key={deal.id}
-                      className="cursor-pointer hover:bg-muted/50"
+                      className={cn(
+                        "cursor-pointer hover:bg-muted/50 transition-colors",
+                        idx % 2 === 1 ? "bg-muted/30" : ""
+                      )}
                       onClick={() => navigate(`/deals/${deal.id}`)}
                     >
                       <TableCell>{format(new Date(deal.date_submitted), 'MMM dd, yyyy')}</TableCell>

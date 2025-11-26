@@ -1,6 +1,5 @@
 import { SidebarTrigger } from '@/components/ui/sidebar'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { RefreshCw, Settings } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
@@ -25,12 +24,11 @@ export function AppHeader() {
   }
 
   return (
-    <header className="flex h-16 items-center gap-4 border-b border-primary bg-primary px-4 text-primary-foreground">
+    <header className="flex h-14 items-center gap-4 border-b border-muted bg-background px-4">
       <SidebarTrigger />
       <div className="flex-1">
         <div className="flex items-center gap-2">
-          <h1 className="text-xl font-bold">GoKapital</h1>
-          <Badge variant="secondary">{t('live_badge')}</Badge>
+          <span className="text-lg font-semibold tracking-wide text-green-600">GoKapital</span>
         </div>
       </div>
       <div className="flex items-center gap-2">
@@ -38,13 +36,13 @@ export function AppHeader() {
         <Button
           onClick={handleManualSync}
           disabled={isSyncing}
-          variant="secondary"
+          variant="outline"
           size="sm"
         >
           <RefreshCw className={`h-4 w-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} />
           {t('sync_emails')}
         </Button>
-        <Button variant="ghost" size="sm" className="text-primary-foreground hover:text-primary-foreground">
+        <Button variant="ghost" size="sm">
           <Settings className="h-4 w-4" />
         </Button>
       </div>

@@ -8,7 +8,7 @@ type Translations = Record<Lang, Record<string, string>>;
 
 const translations: Translations = {
   en: {
-    app_title: "GoKapital CRM",
+    app_title: "GK Live Deal Tracker",
     live_badge: "LiveDealUpdate",
     refresh: "Refresh",
     filters: "Filters",
@@ -36,7 +36,7 @@ const translations: Translations = {
     open_dashboard: "Open Dashboard",
   },
   es: {
-    app_title: "GoKapital CRM",
+    app_title: "GK Rastreador de Operaciones en Vivo",
     live_badge: "Actualización en vivo",
     refresh: "Actualizar",
     filters: "Filtros",

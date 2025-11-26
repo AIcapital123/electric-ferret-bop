@@ -24,11 +24,7 @@ export function AppSidebar() {
   return (
     <Sidebar>
       <SidebarHeader>
-        <div className="flex items-center gap-2 px-4 py-2">
-          <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-            <DollarSign className="h-5 w-5 text-primary-foreground" />
-          </div>
-          <span className="font-bold text-lg">GoKapital</span>
+        <div className="px-4 py-3">
         </div>
       </SidebarHeader>
       <SidebarContent>

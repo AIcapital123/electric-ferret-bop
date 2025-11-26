@@ -3,6 +3,9 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0"
 
+// ------------------------------------
+// CORS
+// ------------------------------------
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -10,6 +13,9 @@ const corsHeaders = {
   "Access-Control-Max-Age": "86400",
 }
 
+// ------------------------------------
+// Types
+// ------------------------------------
 type ParsedEmail = {
   date_submitted: string
   loan_type: string
@@ -39,7 +45,41 @@ type SyncRequestBody = {
   endDate?: string
 }
 
-// -------------- Parsing & normalization helpers --------------
+type EmailMeta = {
+  message_id: string
+  subject: string
+  from: string
+  to: string
+  sent_at: string
+  raw_body: string
+}
+
+// ------------------------------------
+// General utils
+// ------------------------------------
+function clampDate(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate())
+}
+
+function parseYmd(s?: string): Date | undefined {
+  if (!s) return undefined
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!m) return undefined
+  const year = Number(m[1]), month = Number(m[2]) - 1, day = Number(m[3])
+  return clampDate(new Date(year, month, day))
+}
+
+function formatGmailDate(d: Date): string {
+  const yyyy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, "0")
+  const dd = String(d.getDate()).padStart(2, "0")
+  return `${yyyy}/${mm}/${dd}`
+}
+
+function headerValue(headers: GmailMessageHeader[], name: string): string | undefined {
+  const h = headers.find((x) => x.name?.toLowerCase() === name.toLowerCase())
+  return h?.value
+}
 
 function decodeBase64Url(data: string): string {
   const normalized = data.replace(/-/g, "+").replace(/_/g, "/")
@@ -87,11 +127,9 @@ function extractPlainTextFromPayload(payload: any): string {
   return ""
 }
 
-function headerValue(headers: GmailMessageHeader[], name: string): string | undefined {
-  const h = headers.find((x) => x.name?.toLowerCase() === name.toLowerCase())
-  return h?.value
-}
-
+// ------------------------------------
+// Parsing: Cognito Forms
+// ------------------------------------
 function parseCognitoFormsEmail(emailBody: string, subject: string): ParsedEmail {
   const loanTypeMatch = subject.match(/(Personal Loan|Business Loan|Equipment Leasing|Hard Money|Commercial Real Estate)/i)
   const loan_type = loanTypeMatch ? loanTypeMatch[1] : "Unknown"
@@ -203,47 +241,29 @@ function parseCognitoFormsEmail(emailBody: string, subject: string): ParsedEmail
   }
 }
 
-// -------------- Gmail query & date range helpers --------------
-
-function clampDate(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate())
-}
-
-function parseYmd(s?: string): Date | undefined {
-  if (!s) return undefined
-  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  if (!m) return undefined
-  const year = Number(m[1]), month = Number(m[2]) - 1, day = Number(m[3])
-  return clampDate(new Date(year, month, day))
-}
-
-function formatGmailDate(d: Date): string {
-  const yyyy = d.getFullYear()
-  const mm = String(d.getMonth() + 1).padStart(2, "0")
-  const dd = String(d.getDate()).padStart(2, "0")
-  return `${yyyy}/${mm}/${dd}`
-}
-
+// ------------------------------------
+// Gmail query helpers
+// ------------------------------------
 function buildGmailQuery(body: SyncRequestBody): string {
   const baseQuery =
     body?.q ??
     "from:notifications@cognitoforms.com subject:(application) to:deals@gokapital.com"
 
-  const today = new Date()
-  const todayDateOnly = clampDate(today)
-  const twoYearsAgo = clampDate(new Date(todayDateOnly.getFullYear() - 2, todayDateOnly.getMonth(), todayDateOnly.getDate()))
+  const today = clampDate(new Date())
+  const twoYearsAgo = clampDate(new Date(today.getFullYear() - 2, today.getMonth(), today.getDate()))
 
   const startParsed = parseYmd(body?.startDate)
   const endParsedRaw = parseYmd(body?.endDate)
 
   if (startParsed || endParsedRaw) {
-    const endClamped = clampDate(endParsedRaw ?? todayDateOnly)
-    const finalEnd = endClamped > todayDateOnly ? todayDateOnly : endClamped
+    const endClamped = clampDate(endParsedRaw ?? today)
+    const finalEnd = endClamped > today ? today : endClamped
 
     let finalStart = clampDate(startParsed ?? twoYearsAgo)
     if (finalStart < twoYearsAgo) finalStart = twoYearsAgo
     if (finalStart > finalEnd) finalStart = finalEnd
 
+    // Gmail before: is exclusive; add 1 day
     const endPlusOne = new Date(finalEnd)
     endPlusOne.setDate(endPlusOne.getDate() + 1)
 
@@ -254,8 +274,9 @@ function buildGmailQuery(body: SyncRequestBody): string {
   return `${baseQuery} newer_than:30d`
 }
 
-// -------------- Environment & clients --------------
-
+// ------------------------------------
+// Environment & clients
+// ------------------------------------
 async function getAccessToken(): Promise<string> {
   const clientId = Deno.env.get("GOOGLE_CLIENT_ID")
   const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET") || Deno.env.get("GOGLE_CLIENT_SECRET")
@@ -291,8 +312,9 @@ function createSupabaseClientOrNull() {
   return hasSupabase ? createClient(supabaseUrl!, supabaseKey!) : null
 }
 
-// -------------- Gmail API helpers --------------
-
+// ------------------------------------
+// Gmail API helpers
+// ------------------------------------
 async function searchMessageIds(accessToken: string, q: string, maxResults = 10): Promise<string[]> {
   const url = new URL("https://gmail.googleapis.com/gmail/v1/users/me/messages")
   url.searchParams.set("q", q)
@@ -321,8 +343,35 @@ async function getMessage(accessToken: string, id: string): Promise<any> {
   return json
 }
 
-// -------------- Database helpers --------------
+function isCognitoApplicationEmail(from: string, subject: string): boolean {
+  const isCognito =
+    from.includes("cognitoforms.com") || from.includes("notifications@cognitoforms.com")
+  const hasApplication = /application/i.test(subject)
+  return isCognito && hasApplication
+}
 
+function extractEmailMetaFromGmailMessage(gm: any): EmailMeta {
+  const headers = (gm.payload?.headers || []) as GmailMessageHeader[]
+  const from = headerValue(headers, "From") || ""
+  const subject = headerValue(headers, "Subject") || ""
+  const to = headerValue(headers, "To") || ""
+  const date = headerValue(headers, "Date") || new Date().toISOString()
+  const sent_at = new Date(date).toISOString()
+  const raw_body = extractPlainTextFromPayload(gm.payload)
+
+  return {
+    message_id: gm.id,
+    subject,
+    from,
+    to,
+    sent_at,
+    raw_body,
+  }
+}
+
+// ------------------------------------
+// Database helpers
+// ------------------------------------
 async function emailExists(supabase: any, messageId: string): Promise<boolean> {
   const { data: existing } = await supabase
     .from("emails")
@@ -332,14 +381,11 @@ async function emailExists(supabase: any, messageId: string): Promise<boolean> {
   return !!existing
 }
 
-async function insertDealAndEmail(supabase: any, p: ParsedEmail, meta: {
-  message_id: string
-  subject: string
-  from: string
-  to: string
-  sent_at: string
-  raw_body: string
-}): Promise<boolean> {
+async function insertDealAndEmail(
+  supabase: any,
+  p: ParsedEmail,
+  meta: EmailMeta
+): Promise<boolean> {
   const { data: dealInsert, error: dealError } = await supabase
     .from("deals")
     .insert({
@@ -383,9 +429,33 @@ async function insertDealAndEmail(supabase: any, p: ParsedEmail, meta: {
   return true
 }
 
-// -------------- Processors (test & live) --------------
+// ------------------------------------
+// Processing helpers
+// ------------------------------------
+async function processGmailMessage(
+  supabase: any,
+  accessToken: string,
+  messageId: string,
+  parsedCollector: ParsedEmail[]
+): Promise<number> {
+  const gm = await getMessage(accessToken, messageId)
+  const meta = extractEmailMetaFromGmailMessage(gm)
 
-async function processTestMode(body: SyncRequestBody, supabase: any) {
+  if (!isCognitoApplicationEmail(meta.from, meta.subject)) {
+    return 0
+  }
+
+  const parsed = parseCognitoFormsEmail(meta.raw_body, meta.subject)
+  parsedCollector.push(parsed)
+
+  const exists = await emailExists(supabase, meta.message_id)
+  if (exists) return 0
+
+  const ok = await insertDealAndEmail(supabase, parsed, meta)
+  return ok ? 1 : 0
+}
+
+async function processTestInbox(supabase: any): Promise<{ parsed: ParsedEmail[]; inserted: number }> {
   const parsed: ParsedEmail[] = []
   let inserted = 0
 
@@ -440,10 +510,11 @@ Date Submitted: 2024-01-15`,
   return { parsed, inserted }
 }
 
-async function processLiveMode(body: SyncRequestBody, supabase: any) {
-  if (!supabase) {
-    return { error: "Supabase env not set" }
-  }
+async function processLiveQuery(
+  supabase: any,
+  body: SyncRequestBody
+): Promise<{ parsed: ParsedEmail[]; inserted: number } | { error: string }> {
+  if (!supabase) return { error: "Supabase env not set" }
 
   const parsed: ParsedEmail[] = []
   let inserted = 0
@@ -455,46 +526,16 @@ async function processLiveMode(body: SyncRequestBody, supabase: any) {
   const ids = await searchMessageIds(accessToken, query, maxResults)
 
   for (const id of ids) {
-    const gm = await getMessage(accessToken, id)
-    const headers = (gm.payload?.headers || []) as GmailMessageHeader[]
-    const from = headerValue(headers, "From") || ""
-    const subject = headerValue(headers, "Subject") || ""
-    const to = headerValue(headers, "To") || ""
-    const date = headerValue(headers, "Date") || new Date().toISOString()
-    const sent_at = new Date(date).toISOString()
-
-    const isCognito =
-      from.includes("cognitoforms.com") || from.includes("notifications@cognitoforms.com")
-    const hasApplication = /application/i.test(subject)
-    if (!(isCognito && hasApplication)) {
-      continue
-    }
-
-    const bodyText = extractPlainTextFromPayload(gm.payload)
-    const p = parseCognitoFormsEmail(bodyText, subject)
-    parsed.push(p)
-
-    const exists = await emailExists(supabase, gm.id)
-    if (exists) continue
-
-    const ok = await insertDealAndEmail(supabase, p, {
-      message_id: gm.id,
-      subject,
-      from,
-      to,
-      sent_at,
-      raw_body: bodyText,
-    })
-
-    if (ok) inserted += 1
+    inserted += await processGmailMessage(supabase, accessToken, id, parsed)
   }
 
   return { parsed, inserted }
 }
 
-// -------------- HTTP handler --------------
-
-serve(async (req) => {
+// ------------------------------------
+// HTTP handler
+// ------------------------------------
+async function handleRequest(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders })
   }
@@ -506,41 +547,26 @@ serve(async (req) => {
     // Enforce Authorization only for live mode; allow test mode without it
     const authHeader = req.headers.get("Authorization")
     if (!authHeader && !isTest) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      })
+      return json({ error: "Unauthorized" }, 401)
     }
 
     const supabase = createSupabaseClientOrNull()
 
     if (isTest) {
-      const result = await processTestMode(body, supabase)
-      return new Response(JSON.stringify(result), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      })
+      const result = await processTestInbox(supabase)
+      return json(result, 200)
     }
 
     if (!supabase) {
-      return new Response(JSON.stringify({ error: "Supabase env not set" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      })
+      return json({ error: "Supabase env not set" }, 500)
     }
 
-    const result = await processLiveMode(body, supabase)
+    const result = await processLiveQuery(supabase, body)
     if ("error" in result) {
-      return new Response(JSON.stringify(result), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      })
+      return json(result, 500)
     }
 
-    return new Response(JSON.stringify(result), {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    })
+    return json(result, 200)
   } catch (e) {
     console.error("gmail-sync error:", e)
     const msg = typeof e?.message === "string" ? e.message : "Internal error"
@@ -548,10 +574,15 @@ serve(async (req) => {
       msg.includes("Missing Google OAuth secrets") ? 400 :
       msg.includes("invalid_grant") || msg.includes("invalid_client") ? 401 :
       500
-
-    return new Response(JSON.stringify({ error: msg }), {
-      status,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    })
+    return json({ error: msg }, status)
   }
-})
+}
+
+function json(payload: unknown, status = 200): Response {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  })
+}
+
+serve(handleRequest)

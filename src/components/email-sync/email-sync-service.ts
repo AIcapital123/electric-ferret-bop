@@ -1,5 +1,4 @@
 import { showSuccess, showError } from '@/utils/toast'
-import { parseCognitoFormsEmail, isCognitoFormsEmail } from '@/lib/email-parser'
 
 type IncomingEmail = {
   from: string
@@ -13,45 +12,38 @@ export class EmailSyncService {
 
   async syncEmails() {
     try {
-      // Simulate fetching emails from deals@gokapital.com
-      const inbox: IncomingEmail[] = [
+      // Call the Edge Function (test mode produces sample input)
+      const res = await fetch(
+        "https://ehzwwaoivcfaxnzobyat.supabase.co/functions/v1/gmail-sync",
         {
-          from: 'notifications@cognitoforms.com',
-          subject: 'Personal Loan Application - John Doe',
-          body: `Legal Company Name: Doe Enterprises LLC
-Client Name: John Doe
-Email: john.doe@email.com
-Phone: (555) 123-4567
-Loan Amount Sought: $50,000
-City: Miami
-State: FL
-Zip: 33101
-Purpose: Business expansion
-Employment Type: Self-employed
-Employer Name: Doe Enterprises LLC
-Job Title: Owner
-Salary: $120,000
-Referral: Google Search
-Date Submitted: 2024-01-15`,
-        },
-      ]
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            // Use anon key as bearer for simple auth in the function
+            Authorization: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVoend3YW9pdmNmYXhuem9ieWF0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQwMDQ1NTksImV4cCI6MjA2OTU4MDU1OX0.ystRCL07ocUeJUmIPJX2Xb2jp418TYiXMMT5uv-rFZE",
+          },
+          body: JSON.stringify({ test: true }),
+        }
+      )
+
+      if (!res.ok) {
+        const err = await res.text()
+        throw new Error(err || "Edge Function error")
+      }
+
+      const json = await res.json() as { parsed: any[]; inserted: number }
 
       let newApps = 0
-
-      for (const email of inbox) {
-        if (isCognitoFormsEmail(email.from, email.subject)) {
-          const parsed = parseCognitoFormsEmail(email.body, email.subject)
-          newApps += 1
-          // Notify the app with a DOM event; UI can show a popup toast
-          window.dispatchEvent(
-            new CustomEvent('new-application', {
-              detail: {
-                parsed,
-                receivedAt: new Date().toISOString(),
-              },
-            })
-          )
-        }
+      for (const p of json.parsed || []) {
+        newApps += 1
+        window.dispatchEvent(
+          new CustomEvent('new-application', {
+            detail: {
+              parsed: p,
+              receivedAt: new Date().toISOString(),
+            },
+          })
+        )
       }
 
       if (newApps > 0) {
@@ -62,6 +54,7 @@ Date Submitted: 2024-01-15`,
     } catch (error) {
       console.error('Email sync failed:', error)
       showError('Failed to sync emails')
+      throw error
     }
   }
 

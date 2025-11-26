@@ -31,10 +31,18 @@ export function AppSidebar() {
             className="flex items-center gap-2 hover:opacity-90 transition-opacity cursor-pointer"
             aria-label="Go to Dashboard"
           >
-            <img
-              src="/gokapital-logo.png"
-              alt="GoKapital"
-              className="h-7 w-auto"
+            <div
+              className="h-7 w-28 bg-white"
+              style={{
+                WebkitMaskImage: 'url(/gokapital-logo.png)',
+                WebkitMaskRepeat: 'no-repeat',
+                WebkitMaskPosition: 'center',
+                WebkitMaskSize: 'contain',
+                maskImage: 'url(/gokapital-logo.png)',
+                maskRepeat: 'no-repeat',
+                maskPosition: 'center',
+                maskSize: 'contain',
+              }}
             />
           </button>
         </div>

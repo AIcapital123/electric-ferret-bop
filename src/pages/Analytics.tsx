@@ -8,13 +8,14 @@ import * as Recharts from 'recharts';
 import { useLanguage } from '@/components/language/language-provider';
 
 export default function AnalyticsPage() {
-  const { data: deals = [] } = useDeals();
+  const { data: dealsData } = useDeals();
+  const deals = dealsData?.deals ?? [];
   const { t } = useLanguage();
 
   const chartData = deals.map(d => ({
     date: d.date_submitted,
-    amount: d.loan_amount_sought,
-    name: d.loan_type,
+    amount: Number(d.loan_amount_sought || 0),
+    status: d.status,
   }));
 
   const config = {

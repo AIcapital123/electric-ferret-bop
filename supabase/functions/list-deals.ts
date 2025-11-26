@@ -40,8 +40,15 @@ serve(async (req) => {
 
     const body = await req.json().catch(() => ({}))
     const filters: DealFilters = body?.filters || {}
+    const page: number = Number(body?.page ?? 1)
+    const pageSize: number = Number(body?.pageSize ?? 25)
+    const from = (page - 1) * pageSize
+    const to = from + pageSize - 1
 
-    let q = supabase.from("deals").select("*").order("created_at", { ascending: false })
+    let q = supabase
+      .from("deals")
+      .select("*", { count: "exact" })
+      .order("date_submitted", { ascending: false })
 
     if (filters.loanType) {
       q = q.eq("loan_type", filters.loanType)
@@ -62,13 +69,15 @@ serve(async (req) => {
       q = q.lte("date_submitted", filters.dateRange.end)
     }
 
-    const { data, error } = await q
+    q = q.range(from, to)
+
+    const { data, error, count } = await q
     if (error) {
       console.error("list-deals error:", error)
       return json({ error: "query_failed" }, 500)
     }
 
-    return json({ deals: data ?? [] }, 200)
+    return json({ deals: data ?? [], page, pageSize, total: count ?? 0 }, 200)
   } catch (e) {
     console.error("list-deals exception:", e)
     return json({ error: "internal_error" }, 500)

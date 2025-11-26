@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useDeals } from '@/hooks/use-deals'
 import { DealFilters } from '@/types/database'
 import { Button } from '@/components/ui/button'
@@ -7,23 +7,38 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Calendar } from '@/components/ui/calendar'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { CalendarIcon, Filter, RefreshCw, Cloud } from 'lucide-react'
-import { format } from 'date-fns'
-import { DateRange } from 'react-day-picker'
+import { Filter, RefreshCw, Cloud } from 'lucide-react'
+import { format, subDays, subMonths } from 'date-fns'
 import { cn } from '@/lib/utils'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useLanguage } from '@/components/language/language-provider'
 import { emailSyncService } from '@/components/email-sync/email-sync-service'
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious
+} from '@/components/ui/pagination'
 
 export function DealsDashboard() {
   const [filters, setFilters] = useState<DealFilters>({})
-  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined)
-  const { data: deals, isLoading, error, refetch } = useDeals(filters)
+  const [page, setPage] = useState<number>(1)
+  const { data, isLoading, error, refetch } = useDeals(filters, page)
+  const deals = data?.deals || []
+  const total = data?.total || 0
+  const pageSize = data?.pageSize || 25
+  const maxPages = Math.max(1, Math.ceil(total / pageSize))
+
   const { t } = useLanguage()
   const navigate = useNavigate()
+
+  useEffect(() => {
+    // Reset to first page when filters change
+    setPage(1)
+  }, [filters.loanType, filters.minAmount, filters.maxAmount, filters.status, filters.dateRange?.start, filters.dateRange?.end])
 
   const handleFilterChange = (key: keyof DealFilters, value: any) => {
     const newFilters = { ...filters, [key]: value }
@@ -33,18 +48,8 @@ export function DealsDashboard() {
     setFilters(newFilters)
   }
 
-  const applyDateFilter = () => {
-    if (dateRange?.from && dateRange?.to) {
-      handleFilterChange('dateRange', {
-        start: format(dateRange.from, 'yyyy-MM-dd'),
-        end: format(dateRange.to, 'yyyy-MM-dd')
-      })
-    }
-  }
-
   const resetFilters = () => {
     setFilters({})
-    setDateRange(undefined)
   }
 
   const syncEmailsNow = async () => {
@@ -67,6 +72,53 @@ export function DealsDashboard() {
     return <Badge variant={variants[status as keyof typeof variants] || 'default'}>
       {status.replace('_', ' ').toUpperCase()}
     </Badge>
+  }
+
+  // Date range presets
+  type PresetKey =
+    | '1w' | '2w'
+    | '1m' | '2m' | '3m' | '6m' | '12m' | '18m' | '24m'
+
+  const applyPreset = (preset: PresetKey | 'none') => {
+    const today = new Date()
+    if (preset === 'none') {
+      handleFilterChange('dateRange', undefined)
+      return
+    }
+    let start: Date = today
+    switch (preset) {
+      case '1w':
+        start = subDays(today, 7)
+        break
+      case '2w':
+        start = subDays(today, 14)
+        break
+      case '1m':
+        start = subMonths(today, 1)
+        break
+      case '2m':
+        start = subMonths(today, 2)
+        break
+      case '3m':
+        start = subMonths(today, 3)
+        break
+      case '6m':
+        start = subMonths(today, 6)
+        break
+      case '12m':
+        start = subMonths(today, 12)
+        break
+      case '18m':
+        start = subMonths(today, 18)
+        break
+      case '24m':
+        start = subMonths(today, 24)
+        break
+    }
+    handleFilterChange('dateRange', {
+      start: format(start, 'yyyy-MM-dd'),
+      end: format(today, 'yyyy-MM-dd')
+    })
   }
 
   return (
@@ -95,36 +147,39 @@ export function DealsDashboard() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
-            {/* Date Range */}
+            {/* Date Range Presets */}
             <div className="md:col-span-2 lg:col-span-2">
               <label className="text-sm font-medium mb-2 block">{t('date_range')}</label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" className={cn("w-full justify-start text-left font-normal")}>
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {dateRange?.from && dateRange?.to
-                      ? `${format(dateRange.from, "PP")} - ${format(dateRange.to, "PP")}`
-                      : t('select_date_range')}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-3">
-                  <Calendar
-                    mode="range"
-                    selected={dateRange}
-                    onSelect={(range) => setDateRange(range)}
-                    numberOfMonths={2}
-                    className="rounded-md"
-                  />
-                  <div className="flex justify-end gap-2 mt-3">
-                    <Button size="sm" variant="outline" onClick={() => setDateRange(undefined)}>
-                      {t('clear')}
-                    </Button>
-                    <Button size="sm" onClick={applyDateFilter}>
-                      {t('apply')}
-                    </Button>
-                  </div>
-                </PopoverContent>
-              </Popover>
+              <Select
+                value={
+                  filters.dateRange
+                    ? 'custom'
+                    : 'none'
+                }
+                onValueChange={(value) => {
+                  if (value === 'none') {
+                    applyPreset('none')
+                  } else if (value === '1w' || value === '2w' || value === '1m' || value === '2m' || value === '3m' || value === '6m' || value === '12m' || value === '18m' || value === '24m') {
+                    applyPreset(value as PresetKey)
+                  }
+                }}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Choose range" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">All time</SelectItem>
+                  <SelectItem value="1w">1 week ago</SelectItem>
+                  <SelectItem value="2w">2 weeks ago</SelectItem>
+                  <SelectItem value="1m">1 month ago</SelectItem>
+                  <SelectItem value="2m">2 months ago</SelectItem>
+                  <SelectItem value="3m">3 months ago</SelectItem>
+                  <SelectItem value="6m">6 months ago</SelectItem>
+                  <SelectItem value="12m">12 months ago</SelectItem>
+                  <SelectItem value="18m">18 months ago</SelectItem>
+                  <SelectItem value="24m">24 months ago</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             {/* Loan Type */}
@@ -190,10 +245,15 @@ export function DealsDashboard() {
               </Select>
             </div>
           </div>
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end mt-4 gap-2">
-            <Button onClick={resetFilters} variant="outline" size="sm">
-              {t('reset_filters')}
-            </Button>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mt-4 gap-2">
+            <div className="text-sm text-muted-foreground">
+              Showing {Math.min(pageSize, deals.length)} of {total} results (25 per page)
+            </div>
+            <div className="flex items-center gap-2">
+              <Button onClick={resetFilters} variant="outline" size="sm">
+                {t('reset_filters')}
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -220,14 +280,14 @@ export function DealsDashboard() {
                       {t('loading_deals')}
                     </TableCell>
                   </TableRow>
-                ) : (deals?.length ?? 0) === 0 ? (
+                ) : deals.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={6} className="text-center py-8">
                       {t('no_deals_found')}
                     </TableCell>
                   </TableRow>
                 ) : (
-                  deals?.map((deal, idx) => (
+                  deals.map((deal, idx) => (
                     <TableRow
                       key={deal.id}
                       className={cn(
@@ -252,6 +312,42 @@ export function DealsDashboard() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Pagination */}
+      <Pagination>
+        <PaginationContent>
+          <PaginationItem>
+            <PaginationPrevious
+              href="#"
+              onClick={(e) => { e.preventDefault(); setPage((p) => Math.max(1, p - 1)) }}
+              className={page <= 1 ? 'pointer-events-none opacity-50' : ''}
+            />
+          </PaginationItem>
+          {Array.from({ length: Math.min(5, maxPages) }, (_, i) => {
+            // Show a sliding window of up to 5 pages around current
+            const start = Math.max(1, Math.min(page - 2, maxPages - 4))
+            const pageNum = start + i
+            return (
+              <PaginationItem key={pageNum}>
+                <PaginationLink
+                  href="#"
+                  isActive={pageNum === page}
+                  onClick={(e) => { e.preventDefault(); setPage(pageNum) }}
+                >
+                  {pageNum}
+                </PaginationLink>
+              </PaginationItem>
+            )
+          })}
+          <PaginationItem>
+            <PaginationNext
+              href="#"
+              onClick={(e) => { e.preventDefault(); setPage((p) => Math.min(maxPages, p + 1)) }}
+              className={page >= maxPages ? 'pointer-events-none opacity-50' : ''}
+            />
+          </PaginationItem>
+        </PaginationContent>
+      </Pagination>
     </div>
   )
 }

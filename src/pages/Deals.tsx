@@ -10,10 +10,11 @@ import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '@/components/language/language-provider';
 
 export default function DealsPage() {
-  const { data: deals = [] } = useDeals();
+  const { data: dealsData } = useDeals();
   const navigate = useNavigate();
   const { t } = useLanguage();
 
+  const deals = dealsData?.deals ?? [];
   const totalDeals = deals.length;
   const avgAmount = deals.length > 0 ? Math.round(deals.reduce((s, d) => s + (d.loan_amount_sought || 0), 0) / deals.length) : 0;
   const newDeals = deals.filter(d => d.status === 'new').length;

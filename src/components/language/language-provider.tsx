@@ -34,6 +34,58 @@ const translations: Translations = {
     new_app_in: "New application received",
     view: "View",
     open_dashboard: "Open Dashboard",
+
+    // Navigation
+    nav_dashboard: "Dashboard",
+    nav_deals: "Deals",
+    nav_analytics: "Analytics",
+    nav_settings: "Settings",
+
+    // Metrics
+    metrics_total_deals: "Total Deals",
+    metrics_new_deals: "New Deals",
+    metrics_funded_deals: "Funded Deals",
+    metrics_avg_amount: "Avg Amount",
+
+    // Analytics
+    loan_amount_over_time: "Loan Amounts Over Time",
+
+    // Settings page
+    parsing_sync_configuration: "Parsing & Sync Configuration",
+    test_mode: "Test Mode",
+    test_mode_desc: "Use mock data from the Edge Function to validate the pipeline.",
+    gmail_search_query: "Gmail Search Query",
+    save: "Save",
+    run_test_sync: "Run Test Sync",
+    detailed_error_log: "Detailed Error Log",
+    clear_log: "Clear Log",
+    time: "Time",
+    source: "Source",
+    code: "Code",
+    message: "Message",
+    details: "Details",
+    no_errors_logged_yet: "No errors logged yet.",
+
+    // Deal detail
+    loading_deal_details: "Loading deal details...",
+    deal_not_found: "Deal not found",
+    loan_amount: "Loan Amount",
+    date_submitted: "Date Submitted",
+    contact_information: "Contact Information",
+    employment_information: "Employment Information",
+    employment_type: "Employment Type",
+    employer: "Employer",
+    job_title: "Job Title",
+    annual_salary: "Annual Salary",
+    loan_purpose: "Loan Purpose",
+    referral: "Referral",
+    ai_insights: "AI Insights",
+    summary: "Summary",
+    next_best_action: "Next Best Action",
+    notes: "Notes",
+    add_note: "Add Note",
+    adding: "Adding...",
+    original_emails: "Original Emails",
   },
   es: {
     app_title: "GK Rastreador de Operaciones en Vivo",
@@ -62,6 +114,58 @@ const translations: Translations = {
     new_app_in: "Nueva solicitud recibida",
     view: "Ver",
     open_dashboard: "Abrir Panel",
+
+    // Navigation
+    nav_dashboard: "Panel",
+    nav_deals: "Operaciones",
+    nav_analytics: "Analítica",
+    nav_settings: "Configuración",
+
+    // Metrics
+    metrics_total_deals: "Operaciones Totales",
+    metrics_new_deals: "Operaciones Nuevas",
+    metrics_funded_deals: "Operaciones Financiadas",
+    metrics_avg_amount: "Monto Promedio",
+
+    // Analytics
+    loan_amount_over_time: "Montos de Préstamo en el Tiempo",
+
+    // Settings page
+    parsing_sync_configuration: "Configuración de Parseo y Sincronización",
+    test_mode: "Modo de Prueba",
+    test_mode_desc: "Usa datos simulados del Edge Function para validar el flujo.",
+    gmail_search_query: "Consulta de búsqueda en Gmail",
+    save: "Guardar",
+    run_test_sync: "Ejecutar Prueba de Sincronización",
+    detailed_error_log: "Registro Detallado de Errores",
+    clear_log: "Limpiar Registro",
+    time: "Hora",
+    source: "Fuente",
+    code: "Código",
+    message: "Mensaje",
+    details: "Detalles",
+    no_errors_logged_yet: "No hay errores registrados aún.",
+
+    // Deal detail
+    loading_deal_details: "Cargando detalles de la operación...",
+    deal_not_found: "Operación no encontrada",
+    loan_amount: "Monto del Préstamo",
+    date_submitted: "Fecha de envío",
+    contact_information: "Información de Contacto",
+    employment_information: "Información Laboral",
+    employment_type: "Tipo de Empleo",
+    employer: "Empleador",
+    job_title: "Cargo",
+    annual_salary: "Salario Anual",
+    loan_purpose: "Propósito del Préstamo",
+    referral: "Referencia",
+    ai_insights: "Ideas de IA",
+    summary: "Resumen",
+    next_best_action: "Próxima Mejor Acción",
+    notes: "Notas",
+    add_note: "Agregar Nota",
+    adding: "Agregando...",
+    original_emails: "Correos Originales",
   },
 };
 

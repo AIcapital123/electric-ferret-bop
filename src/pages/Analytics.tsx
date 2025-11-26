@@ -5,9 +5,11 @@ import { useDeals } from '@/hooks/use-deals';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import * as Recharts from 'recharts';
+import { useLanguage } from '@/components/language/language-provider';
 
 export default function AnalyticsPage() {
   const { data: deals = [] } = useDeals();
+  const { t } = useLanguage();
 
   const chartData = deals.map(d => ({
     date: d.date_submitted,
@@ -27,7 +29,7 @@ export default function AnalyticsPage() {
         <div className="container mx-auto p-6 space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Loan Amounts Over Time</CardTitle>
+              <CardTitle>{t('loan_amount_over_time')}</CardTitle>
             </CardHeader>
             <CardContent>
               <ChartContainer config={config}>

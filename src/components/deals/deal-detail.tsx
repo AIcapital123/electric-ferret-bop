@@ -10,6 +10,8 @@ import { format } from 'date-fns'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { Mail, Phone, MapPin, DollarSign, User, Building, FileText, MessageSquare, CalendarIcon } from 'lucide-react'
+import { useLanguage } from '@/components/language/language-provider'
+import { Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbLink, BreadcrumbSeparator, BreadcrumbPage } from '@/components/ui/breadcrumb'
 
 export function DealDetail() {
   const { id } = useParams<{ id: string }>()
@@ -18,16 +20,17 @@ export function DealDetail() {
   const { data: emails } = useDealEmails(id!)
   const { mutate: updateDeal } = useUpdateDeal()
   const { mutate: addNote } = useAddNote()
+  const { t } = useLanguage()
   
   const [noteText, setNoteText] = useState('')
   const [isAddingNote, setIsAddingNote] = useState(false)
 
   if (dealLoading) {
-    return <div className="container mx-auto p-6">Loading deal details...</div>
+    return <div className="container mx-auto p-6">{t('loading_deal_details')}</div>
   }
 
   if (!deal) {
-    return <div className="container mx-auto p-6">Deal not found</div>
+    return <div className="container mx-auto p-6">{t('deal_not_found')}</div>
   }
 
   const handleStatusChange = (newStatus: string) => {
@@ -71,6 +74,23 @@ export function DealDetail() {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
+      {/* Breadcrumb */}
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink href="/">{t('nav_dashboard')}</BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbLink href="/deals">{t('nav_deals')}</BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>{deal.client_name}</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
+
       {/* Header */}
       <div className="flex justify-between items-start">
         <div>
@@ -83,10 +103,10 @@ export function DealDetail() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="new">New</SelectItem>
-              <SelectItem value="in_progress">In Progress</SelectItem>
-              <SelectItem value="funded">Funded</SelectItem>
-              <SelectItem value="lost">Lost</SelectItem>
+              <SelectItem value="new">{t('status')} - NEW</SelectItem>
+              <SelectItem value="in_progress">{t('status')} - IN PROGRESS</SelectItem>
+              <SelectItem value="funded">{t('status')} - FUNDED</SelectItem>
+              <SelectItem value="lost">{t('status')} - LOST</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -96,7 +116,7 @@ export function DealDetail() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Loan Type</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('loan_type')}</CardTitle>
             <FileText className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -106,7 +126,7 @@ export function DealDetail() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Loan Amount</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('loan_amount')}</CardTitle>
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -116,7 +136,7 @@ export function DealDetail() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Date Submitted</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('date_submitted')}</CardTitle>
             <CalendarIcon className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -128,7 +148,7 @@ export function DealDetail() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Status</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('status')}</CardTitle>
             <User className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -143,7 +163,7 @@ export function DealDetail() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <User className="h-5 w-5" />
-              Contact Information
+              {t('contact_information')}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -174,13 +194,13 @@ export function DealDetail() {
             )}
             {deal.purpose && (
               <div>
-                <span className="font-medium">Loan Purpose: </span>
+                <span className="font-medium">{t('loan_purpose')}: </span>
                 <span>{deal.purpose}</span>
               </div>
             )}
             {deal.referral && (
               <div>
-                <span className="font-medium">Referral: </span>
+                <span className="font-medium">{t('referral')}: </span>
                 <span>{deal.referral}</span>
               </div>
             )}
@@ -192,31 +212,31 @@ export function DealDetail() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Building className="h-5 w-5" />
-              Employment Information
+              {t('employment_information')}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             {deal.employment_type && (
               <div>
-                <span className="font-medium">Employment Type: </span>
+                <span className="font-medium">{t('employment_type')}: </span>
                 <span>{deal.employment_type}</span>
               </div>
             )}
             {deal.employer_name && (
               <div>
-                <span className="font-medium">Employer: </span>
+                <span className="font-medium">{t('employer')}: </span>
                 <span>{deal.employer_name}</span>
               </div>
             )}
             {deal.job_title && (
               <div>
-                <span className="font-medium">Job Title: </span>
+                <span className="font-medium">{t('job_title')}: </span>
                 <span>{deal.job_title}</span>
               </div>
             )}
             {deal.salary && (
               <div>
-                <span className="font-medium">Annual Salary: </span>
+                <span className="font-medium">{t('annual_salary')}: </span>
                 <span>${deal.salary.toLocaleString()}</span>
               </div>
             )}
@@ -230,19 +250,19 @@ export function DealDetail() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <MessageSquare className="h-5 w-5" />
-              AI Insights
+              {t('ai_insights')}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             {deal.ai_summary && (
               <div>
-                <h4 className="font-medium mb-2">Summary</h4>
+                <h4 className="font-medium mb-2">{t('summary')}</h4>
                 <p className="text-sm text-muted-foreground">{deal.ai_summary}</p>
               </div>
             )}
             {deal.next_best_action && (
               <div>
-                <h4 className="font-medium mb-2">Next Best Action</h4>
+                <h4 className="font-medium mb-2">{t('next_best_action')}</h4>
                 <p className="text-sm text-muted-foreground">{deal.next_best_action}</p>
               </div>
             )}
@@ -255,19 +275,19 @@ export function DealDetail() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <MessageSquare className="h-5 w-5" />
-            Notes
+            {t('notes')}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <Textarea
-              placeholder="Add a note..."
+              placeholder={`${t('add_note')}...`}
               value={noteText}
               onChange={(e) => setNoteText(e.target.value)}
               rows={3}
             />
             <Button onClick={handleAddNote} disabled={isAddingNote || !noteText.trim()}>
-              {isAddingNote ? 'Adding...' : 'Add Note'}
+              {isAddingNote ? t('adding') : t('add_note')}
             </Button>
           </div>
           
@@ -295,7 +315,7 @@ export function DealDetail() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Mail className="h-5 w-5" />
-              Original Emails
+              {t('original_emails')}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">

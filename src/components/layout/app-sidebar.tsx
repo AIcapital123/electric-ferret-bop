@@ -9,16 +9,18 @@ import {
 } from '@/components/ui/sidebar'
 import { Home, DollarSign, Settings, BarChart3 } from 'lucide-react'
 import { useNavigate, useLocation } from 'react-router-dom'
+import { useLanguage } from '@/components/language/language-provider'
 
 export function AppSidebar() {
   const navigate = useNavigate()
   const location = useLocation()
+  const { t } = useLanguage()
 
   const menuItems = [
-    { title: 'Dashboard', icon: Home, path: '/' },
-    { title: 'Deals', icon: DollarSign, path: '/deals' },
-    { title: 'Analytics', icon: BarChart3, path: '/analytics' },
-    { title: 'Settings', icon: Settings, path: '/settings' },
+    { title: t('nav_dashboard'), icon: Home, path: '/' },
+    { title: t('nav_deals'), icon: DollarSign, path: '/deals' },
+    { title: t('nav_analytics'), icon: BarChart3, path: '/analytics' },
+    { title: t('nav_settings'), icon: Settings, path: '/settings' },
   ]
 
   return (

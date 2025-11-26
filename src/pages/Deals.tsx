@@ -7,10 +7,12 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { format } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
+import { useLanguage } from '@/components/language/language-provider';
 
 export default function DealsPage() {
   const { data: deals = [] } = useDeals();
   const navigate = useNavigate();
+  const { t } = useLanguage();
 
   const totalDeals = deals.length;
   const avgAmount = deals.length > 0 ? Math.round(deals.reduce((s, d) => s + (d.loan_amount_sought || 0), 0) / deals.length) : 0;
@@ -24,10 +26,10 @@ export default function DealsPage() {
         <AppHeader />
         <div className="container mx-auto p-6 space-y-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <MetricCard title="Total Deals" value={totalDeals} />
-            <MetricCard title="New Deals" value={newDeals} />
-            <MetricCard title="Funded Deals" value={fundedDeals} />
-            <MetricCard title="Avg Amount" value={`$${avgAmount.toLocaleString()}`} />
+            <MetricCard title={t('metrics_total_deals')} value={totalDeals} />
+            <MetricCard title={t('metrics_new_deals')} value={newDeals} />
+            <MetricCard title={t('metrics_funded_deals')} value={fundedDeals} />
+            <MetricCard title={t('metrics_avg_amount')} value={`$${avgAmount.toLocaleString()}`} />
           </div>
           <Card>
             <CardContent className="p-0">
@@ -35,16 +37,20 @@ export default function DealsPage() {
                 <Table>
                   <TableHeader className="bg-muted/40">
                     <TableRow>
-                      <TableHead>Date Submitted</TableHead>
-                      <TableHead>Loan Type</TableHead>
-                      <TableHead>Company</TableHead>
-                      <TableHead>Client</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
+                      <TableHead>{t('table_date_submitted')}</TableHead>
+                      <TableHead>{t('table_loan_type')}</TableHead>
+                      <TableHead>{t('table_company_name')}</TableHead>
+                      <TableHead>{t('table_client_name')}</TableHead>
+                      <TableHead className="text-right">{t('table_loan_amount')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {deals.map(deal => (
-                      <TableRow key={deal.id} className="cursor-pointer hover:bg-muted/50" onClick={() => navigate(`/deals/${deal.id}`)}>
+                    {deals.map((deal, idx) => (
+                      <TableRow
+                        key={deal.id}
+                        className={`cursor-pointer hover:bg-muted/50 transition-colors ${idx % 2 === 1 ? 'bg-muted/30' : ''}`}
+                        onClick={() => navigate(`/deals/${deal.id}`)}
+                      >
                         <TableCell>{format(new Date(deal.date_submitted), 'MMM dd, yyyy')}</TableCell>
                         <TableCell>{deal.loan_type}</TableCell>
                         <TableCell>{deal.legal_company_name}</TableCell>

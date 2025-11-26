@@ -11,7 +11,7 @@ type IncomingEmail = {
 // Mock implementation for now
 export class EmailSyncService {
   private syncInterval: NodeJS.Timeout | null = null
-  private config: { test: boolean; query?: string; maxResults?: number } = (() => {
+  private config: { test: boolean; query?: string; maxResults?: number; startDate?: string; endDate?: string } = (() => {
     try {
       const raw = localStorage.getItem('email_sync_config')
       return raw ? JSON.parse(raw) : { test: true }
@@ -20,7 +20,7 @@ export class EmailSyncService {
     }
   })()
 
-  setConfig(next: Partial<{ test: boolean; query?: string; maxResults?: number }>) {
+  setConfig(next: Partial<{ test: boolean; query?: string; maxResults?: number; startDate?: string; endDate?: string }>) {
     this.config = { ...this.config, ...next }
     localStorage.setItem('email_sync_config', JSON.stringify(this.config))
   }
@@ -36,6 +36,8 @@ export class EmailSyncService {
       }
       if (this.config.query) body.q = this.config.query
       if (this.config.maxResults) body.maxResults = this.config.maxResults
+      if (this.config.startDate) body.startDate = this.config.startDate
+      if (this.config.endDate) body.endDate = this.config.endDate
 
       const { data, error } = await supabase.functions.invoke('gmail-sync', {
         body,

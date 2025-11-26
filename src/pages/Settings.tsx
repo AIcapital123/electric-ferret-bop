@@ -15,16 +15,20 @@ export default function SettingsPage() {
   const errors = useErrorLog();
   const [testMode, setTestMode] = useState(true);
   const [query, setQuery] = useState<string>('');
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
   const { t } = useLanguage();
 
   useEffect(() => {
     const cfg = emailSyncService.getConfig();
     setTestMode(!!cfg.test);
     setQuery(cfg.query || '');
+    setStartDate(cfg.startDate || '');
+    setEndDate(cfg.endDate || '');
   }, []);
 
   const saveConfig = () => {
-    emailSyncService.setConfig({ test: testMode, query });
+    emailSyncService.setConfig({ test: testMode, query, startDate, endDate });
   };
 
   const runTest = async () => {
@@ -56,6 +60,49 @@ export default function SettingsPage() {
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                 />
+              </div>
+              <div>
+                <div className="text-sm font-medium mb-2">{t('date_range')}</div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Start Date */}
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">{t('start_date')}</div>
+                    <Input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      // Allow up to 2 years back
+                      min={(() => {
+                        const d = new Date()
+                        d.setFullYear(d.getFullYear() - 2)
+                        return d.toISOString().split('T')[0]
+                      })()}
+                      // If endDate set, cap start at endDate
+                      max={endDate ? endDate : new Date().toISOString().split('T')[0]}
+                    />
+                  </div>
+                  {/* End Date */}
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">{t('end_date')}</div>
+                    <Input
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      // End cannot be in the future
+                      max={new Date().toISOString().split('T')[0]}
+                      // End should not be before start
+                      min={(() => {
+                        const twoYearsAgo = new Date()
+                        twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2)
+                        const minByRange = startDate ? startDate : twoYearsAgo.toISOString().split('T')[0]
+                        return minByRange
+                      })()}
+                    />
+                  </div>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Select a range up to 2 years back; the end date cannot be in the future.
+                </p>
               </div>
               <div className="flex gap-2">
                 <Button onClick={saveConfig}>{t('save')}</Button>

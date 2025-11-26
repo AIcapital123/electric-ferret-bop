@@ -269,9 +269,60 @@ serve(async (req) => {
     const body = await req.json().catch(() => ({}))
     const isTest = !!body?.test
     const maxResults = Number(body?.maxResults ?? 10)
-    const query =
+
+    // Build base query and optional date range
+    const baseQuery =
       body?.q ??
-      'from:notifications@cognitoforms.com subject:(application) to:deals@gokapital.com newer_than:30d'
+      'from:notifications@cognitoforms.com subject:(application) to:deals@gokapital.com'
+
+    const startDateStr = typeof body?.startDate === 'string' ? body.startDate : undefined
+    const endDateStr = typeof body?.endDate === 'string' ? body.endDate : undefined
+
+    const today = new Date()
+    const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+    const twoYearsAgo = new Date(todayDateOnly)
+    twoYearsAgo.setFullYear(todayDateOnly.getFullYear() - 2)
+
+    const clampDate = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate())
+
+    const parseYmd = (s?: string): Date | undefined => {
+      if (!s) return undefined
+      const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+      if (!m) return undefined
+      const year = Number(m[1]), month = Number(m[2]) - 1, day = Number(m[3])
+      return clampDate(new Date(year, month, day))
+    }
+
+    const formatGmailDate = (d: Date) => {
+      const yyyy = d.getFullYear()
+      const mm = String(d.getMonth() + 1).padStart(2, '0')
+      const dd = String(d.getDate()).padStart(2, '0')
+      return `${yyyy}/${mm}/${dd}`
+    }
+
+    let query = baseQuery
+    const startParsed = parseYmd(startDateStr)
+    const endParsedRaw = parseYmd(endDateStr)
+
+    if (startParsed || endParsedRaw) {
+      // Clamp end to today (no future)
+      const endClamped = clampDate(endParsedRaw ?? todayDateOnly)
+      const finalEnd = endClamped > todayDateOnly ? todayDateOnly : endClamped
+
+      // Clamp start to at most 2 years ago; also ensure start <= end
+      let finalStart = clampDate(startParsed ?? twoYearsAgo)
+      if (finalStart < twoYearsAgo) finalStart = twoYearsAgo
+      if (finalStart > finalEnd) finalStart = finalEnd
+
+      // Gmail's before: is exclusive; add 1 day to include end date
+      const endPlusOne = new Date(finalEnd)
+      endPlusOne.setDate(endPlusOne.getDate() + 1)
+
+      query = `${baseQuery} after:${formatGmailDate(finalStart)} before:${formatGmailDate(endPlusOne)}`
+    } else {
+      // Default to last 30 days if no explicit dates provided
+      query = `${baseQuery} newer_than:30d`
+    }
 
     // Enforce Authorization only for live mode; allow test mode without it
     const authHeader = req.headers.get("Authorization")

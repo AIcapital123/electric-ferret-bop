@@ -9,19 +9,20 @@ import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { CalendarIcon, Filter, RefreshCw } from 'lucide-react'
+import { CalendarIcon, Filter, RefreshCw, Cloud } from 'lucide-react'
 import { format } from 'date-fns'
+import { DateRange } from 'react-day-picker'
 import { cn } from '@/lib/utils'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useLanguage } from '@/components/language/language-provider'
+import { emailSyncService } from '@/components/email-sync/email-sync-service'
 
 export function DealsDashboard() {
   const [filters, setFilters] = useState<DealFilters>({})
-  const [dateRange, setDateRange] = useState<{ start?: Date; end?: Date }>({})
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined)
   const { data: deals, isLoading, error, refetch } = useDeals(filters)
   const { t } = useLanguage()
-
   const navigate = useNavigate()
 
   const handleFilterChange = (key: keyof DealFilters, value: any) => {
@@ -33,17 +34,23 @@ export function DealsDashboard() {
   }
 
   const applyDateFilter = () => {
-    if (dateRange.start && dateRange.end) {
+    if (dateRange?.from && dateRange?.to) {
       handleFilterChange('dateRange', {
-        start: format(dateRange.start, 'yyyy-MM-dd'),
-        end: format(dateRange.end, 'yyyy-MM-dd')
+        start: format(dateRange.from, 'yyyy-MM-dd'),
+        end: format(dateRange.to, 'yyyy-MM-dd')
       })
     }
   }
 
   const resetFilters = () => {
     setFilters({})
-    setDateRange({})
+    setDateRange(undefined)
+  }
+
+  const syncEmailsNow = async () => {
+    await emailSyncService.syncEmails()
+    toast.success('Email sync started')
+    refetch()
   }
 
   if (error) {
@@ -64,12 +71,18 @@ export function DealsDashboard() {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-semibold tracking-tight">{t('app_title')}</h1>
-        <Button onClick={() => refetch()} variant="outline" size="sm">
-          <RefreshCw className="h-4 w-4 mr-2" />
-          {t('refresh')}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button onClick={syncEmailsNow} size="sm">
+            <Cloud className="h-4 w-4 mr-2" />
+            Sync Emails
+          </Button>
+          <Button onClick={() => refetch()} variant="outline" size="sm">
+            <RefreshCw className="h-4 w-4 mr-2" />
+            {t('refresh')}
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -81,51 +94,47 @@ export function DealsDashboard() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-            <div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
+            {/* Date Range */}
+            <div className="md:col-span-2 lg:col-span-2">
               <label className="text-sm font-medium mb-2 block">{t('date_range')}</label>
-              <div className="flex gap-2">
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className={cn("w-full justify-start text-left font-normal")}>
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {dateRange.start ? format(dateRange.start, "PP") : t('start_date')}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className={cn("w-full justify-start text-left font-normal")}>
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {dateRange?.from && dateRange?.to
+                      ? `${format(dateRange.from, "PP")} - ${format(dateRange.to, "PP")}`
+                      : t('select_date_range')}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-3">
+                  <Calendar
+                    mode="range"
+                    selected={dateRange}
+                    onSelect={(range) => setDateRange(range)}
+                    numberOfMonths={2}
+                    className="rounded-md"
+                  />
+                  <div className="flex justify-end gap-2 mt-3">
+                    <Button size="sm" variant="outline" onClick={() => setDateRange(undefined)}>
+                      {t('clear')}
                     </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <Calendar
-                      mode="single"
-                      selected={dateRange.start}
-                      onSelect={(date) => setDateRange({ ...dateRange, start: date })}
-                    />
-                  </PopoverContent>
-                </Popover>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className={cn("w-full justify-start text-left font-normal")}>
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {dateRange.end ? format(dateRange.end, "PP") : t('end_date')}
+                    <Button size="sm" onClick={applyDateFilter}>
+                      {t('apply')}
                     </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <Calendar
-                      mode="single"
-                      selected={dateRange.end}
-                      onSelect={(date) => setDateRange({ ...dateRange, end: date })}
-                    />
-                  </PopoverContent>
-                </Popover>
-                <Button onClick={applyDateFilter} size="sm">{t('apply')}</Button>
-              </div>
+                  </div>
+                </PopoverContent>
+              </Popover>
             </div>
 
+            {/* Loan Type */}
             <div>
               <label className="text-sm font-medium mb-2 block">{t('loan_type')}</label>
               <Select
                 value={filters.loanType || 'all'}
                 onValueChange={(value) => handleFilterChange('loanType', value === 'all' ? undefined : value)}
               >
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="All types" />
                 </SelectTrigger>
                 <SelectContent>
@@ -139,6 +148,7 @@ export function DealsDashboard() {
               </Select>
             </div>
 
+            {/* Min Amount */}
             <div>
               <label className="text-sm font-medium mb-2 block">{t('min_amount')}</label>
               <Input
@@ -149,6 +159,7 @@ export function DealsDashboard() {
               />
             </div>
 
+            {/* Max Amount */}
             <div>
               <label className="text-sm font-medium mb-2 block">{t('max_amount')}</label>
               <Input
@@ -159,13 +170,14 @@ export function DealsDashboard() {
               />
             </div>
 
+            {/* Status */}
             <div>
               <label className="text-sm font-medium mb-2 block">{t('status')}</label>
               <Select
                 value={filters.status || 'all'}
                 onValueChange={(value) => handleFilterChange('status', value === 'all' ? undefined : value)}
               >
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="All statuses" />
                 </SelectTrigger>
                 <SelectContent>
@@ -178,7 +190,7 @@ export function DealsDashboard() {
               </Select>
             </div>
           </div>
-          <div className="flex justify-end mt-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end mt-4 gap-2">
             <Button onClick={resetFilters} variant="outline" size="sm">
               {t('reset_filters')}
             </Button>
@@ -193,7 +205,7 @@ export function DealsDashboard() {
             <Table>
               <TableHeader className="bg-muted/40">
                 <TableRow>
-                  <TableHead className="w-[140px]">{t('table_date_submitted')}</TableHead>
+                  <TableHead className="w-[160px]">{t('table_date_submitted')}</TableHead>
                   <TableHead>{t('table_loan_type')}</TableHead>
                   <TableHead>{t('table_company_name')}</TableHead>
                   <TableHead>{t('table_client_name')}</TableHead>
@@ -208,7 +220,7 @@ export function DealsDashboard() {
                       {t('loading_deals')}
                     </TableCell>
                   </TableRow>
-                ) : deals?.length === 0 ? (
+                ) : (deals?.length ?? 0) === 0 ? (
                   <TableRow>
                     <TableCell colSpan={6} className="text-center py-8">
                       {t('no_deals_found')}
@@ -229,7 +241,7 @@ export function DealsDashboard() {
                       <TableCell>{deal.legal_company_name}</TableCell>
                       <TableCell>{deal.client_name}</TableCell>
                       <TableCell className="text-right">
-                        ${deal.loan_amount_sought.toLocaleString()}
+                        ${Number(deal.loan_amount_sought || 0).toLocaleString()}
                       </TableCell>
                       <TableCell>{getStatusBadge(deal.status)}</TableCell>
                     </TableRow>

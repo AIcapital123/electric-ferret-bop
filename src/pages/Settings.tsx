@@ -56,7 +56,7 @@ export default function SettingsPage() {
               <div>
                 <div className="text-sm font-medium mb-2">{t('gmail_search_query')}</div>
                 <Input
-                  placeholder='from:notifications@cognitoforms.com subject:(application) newer_than:30d'
+                  placeholder='from:notifications@cognitoforms.com subject:(application) within 30 days'
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                 />

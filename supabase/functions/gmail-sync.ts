@@ -263,15 +263,19 @@ function buildGmailQuery(body: SyncRequestBody): string {
     if (finalStart < twoYearsAgo) finalStart = twoYearsAgo
     if (finalStart > finalEnd) finalStart = finalEnd
 
-    // Gmail before: is exclusive; add 1 day
     const endPlusOne = new Date(finalEnd)
     endPlusOne.setDate(endPlusOne.getDate() + 1)
 
     return `${baseQuery} after:${formatGmailDate(finalStart)} before:${formatGmailDate(endPlusOne)}`
   }
 
-  // Default to last 30 days
-  return `${baseQuery} newer_than:30d`
+  // Default: within the last 30 days => after:(30 days ago) before:(tomorrow)
+  const thirtyDaysAgo = new Date(today)
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+  const tomorrow = new Date(today)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+
+  return `${baseQuery} after:${formatGmailDate(thirtyDaysAgo)} before:${formatGmailDate(tomorrow)}`
 }
 
 // ------------------------------------

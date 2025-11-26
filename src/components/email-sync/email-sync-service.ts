@@ -14,9 +14,9 @@ export class EmailSyncService {
   private config: { test: boolean; query?: string; maxResults?: number; startDate?: string; endDate?: string } = (() => {
     try {
       const raw = localStorage.getItem('email_sync_config')
-      return raw ? JSON.parse(raw) : { test: true }
+      return raw ? JSON.parse(raw) : { test: false }
     } catch {
-      return { test: true }
+      return { test: false }
     }
   })()
 

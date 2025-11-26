@@ -65,8 +65,14 @@ export function useUpdateDeal() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async ({ id, updates }: { id: string; updates: Partial<Deal> }) => {
-      // Placeholder mutation; update via edge function later
-      return { id, ...updates } as Deal
+      if (!updates.status) {
+        return { id, ...updates } as Deal
+      }
+      const { data, error } = await supabase.functions.invoke('update-deal-status', {
+        body: { id, status: updates.status },
+      })
+      if (error) throw new Error(error.message || 'Failed to update status')
+      return (data as { deal: Deal }).deal
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['deals'] })

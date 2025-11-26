@@ -12,6 +12,8 @@ import { toast } from 'sonner'
 import { Mail, Phone, MapPin, DollarSign, User, Building, FileText, MessageSquare, CalendarIcon } from 'lucide-react'
 import { useLanguage } from '@/components/language/language-provider'
 import { Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbLink, BreadcrumbSeparator, BreadcrumbPage } from '@/components/ui/breadcrumb'
+import StatusTag from '@/components/deals/status-tag'
+import { formatInTimeZone } from 'date-fns-tz'
 
 export function DealDetail() {
   const { id } = useParams<{ id: string }>()
@@ -35,7 +37,7 @@ export function DealDetail() {
 
   const handleStatusChange = (newStatus: string) => {
     updateDeal(
-      { id: deal.id, updates: { status: newStatus as any } },
+      { id: deal.id, updates: { status: newStatus } },
       {
         onSuccess: () => toast.success('Status updated successfully'),
         onError: () => toast.error('Failed to update status')
@@ -93,20 +95,29 @@ export function DealDetail() {
 
       {/* Header */}
       <div className="flex justify-between items-start">
-        <div>
-          <h1 className="text-3xl font-bold">{deal.client_name}</h1>
+        <div className="space-y-1">
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold">{deal.client_name}</h1>
+            <StatusTag status={deal.status} />
+          </div>
           <p className="text-muted-foreground">{deal.legal_company_name}</p>
         </div>
         <div className="flex items-center gap-2">
           <Select value={deal.status} onValueChange={handleStatusChange}>
-            <SelectTrigger className="w-40">
+            <SelectTrigger className="w-52">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="new">{t('status')} - NEW</SelectItem>
-              <SelectItem value="in_progress">{t('status')} - IN PROGRESS</SelectItem>
-              <SelectItem value="funded">{t('status')} - FUNDED</SelectItem>
-              <SelectItem value="lost">{t('status')} - LOST</SelectItem>
+              <SelectItem value="New">New</SelectItem>
+              <SelectItem value="Under Review">Under Review</SelectItem>
+              <SelectItem value="Missing Information">Missing Information</SelectItem>
+              <SelectItem value="Approved">Approved</SelectItem>
+              <SelectItem value="Declined">Declined</SelectItem>
+              <SelectItem value="Funded">Funded</SelectItem>
+              <SelectItem value="Not Interested">Not Interested</SelectItem>
+              <SelectItem value="On Hold">On Hold</SelectItem>
+              <SelectItem value="Withdrawn">Withdrawn</SelectItem>
+              <SelectItem value="Re-submission">Re-submission</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -141,7 +152,7 @@ export function DealDetail() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {format(new Date(deal.date_submitted), 'MMM dd, yyyy')}
+              {formatInTimeZone(new Date(deal.date_submitted), 'America/New_York', 'MMM dd, yyyy')}
             </div>
           </CardContent>
         </Card>
@@ -298,7 +309,7 @@ export function DealDetail() {
                   <div className="flex justify-between items-start mb-1">
                     <span className="font-medium text-sm">{note.author}</span>
                     <span className="text-xs text-muted-foreground">
-                      {format(new Date(note.created_at), 'MMM dd, yyyy HH:mm')}
+                      {formatInTimeZone(new Date(note.created_at), 'America/New_York', 'MMM dd, yyyy HH:mm')}
                     </span>
                   </div>
                   <p className="text-sm">{note.body}</p>
@@ -324,7 +335,7 @@ export function DealDetail() {
                 <div className="flex justify-between items-start mb-2">
                   <h4 className="font-medium">{email.subject}</h4>
                   <span className="text-xs text-muted-foreground">
-                    {format(new Date(email.sent_at), 'MMM dd, yyyy HH:mm')}
+                    {formatInTimeZone(new Date(email.sent_at), 'America/New_York', 'MMM dd, yyyy HH:mm')}
                   </span>
                 </div>
                 <p className="text-sm text-muted-foreground line-clamp-3">

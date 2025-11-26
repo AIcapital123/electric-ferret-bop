@@ -17,7 +17,7 @@ export interface Deal {
   salary?: number
   referral?: string
   source: string
-  status: 'new' | 'in_progress' | 'funded' | 'lost'
+  status: string
   created_at: string
   updated_at: string
   ai_summary?: string

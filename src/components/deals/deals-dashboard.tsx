@@ -24,6 +24,8 @@ import {
 } from '@/components/ui/pagination'
 import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
+import StatusTag from '@/components/deals/status-tag'
+import { formatInTimeZone } from 'date-fns-tz'
 
 export function DealsDashboard() {
   // Pending filters user is editing
@@ -104,15 +106,7 @@ export function DealsDashboard() {
   }
 
   const getStatusBadge = (status: string) => {
-    const variants = {
-      new: 'default' as const,
-      in_progress: 'secondary' as const,
-      funded: 'outline' as const,
-      lost: 'destructive' as const
-    }
-    return <Badge variant={variants[status as keyof typeof variants] || 'default'}>
-      {status.replace('_', ' ').toUpperCase()}
-    </Badge>
+    return <StatusTag status={status} />
   }
 
   // Date range presets
@@ -347,10 +341,16 @@ export function DealsDashboard() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All statuses</SelectItem>
-                  <SelectItem value="new">New</SelectItem>
-                  <SelectItem value="in_progress">In Progress</SelectItem>
-                  <SelectItem value="funded">Funded</SelectItem>
-                  <SelectItem value="lost">Lost</SelectItem>
+                  <SelectItem value="New">New</SelectItem>
+                  <SelectItem value="Under Review">Under Review</SelectItem>
+                  <SelectItem value="Missing Information">Missing Information</SelectItem>
+                  <SelectItem value="Approved">Approved</SelectItem>
+                  <SelectItem value="Declined">Declined</SelectItem>
+                  <SelectItem value="Funded">Funded</SelectItem>
+                  <SelectItem value="Not Interested">Not Interested</SelectItem>
+                  <SelectItem value="On Hold">On Hold</SelectItem>
+                  <SelectItem value="Withdrawn">Withdrawn</SelectItem>
+                  <SelectItem value="Re-submission">Re-submission</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -412,7 +412,7 @@ export function DealsDashboard() {
                       )}
                       onClick={() => navigate(`/deals/${deal.id}`)}
                     >
-                      <TableCell>{format(new Date(deal.date_submitted), 'MMM dd, yyyy')}</TableCell>
+                      <TableCell>{formatInTimeZone(new Date(deal.date_submitted), 'America/New_York', 'MMM dd, yyyy')}</TableCell>
                       <TableCell>{deal.loan_type}</TableCell>
                       <TableCell>{deal.legal_company_name}</TableCell>
                       <TableCell>{deal.client_name}</TableCell>

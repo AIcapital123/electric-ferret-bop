@@ -14,11 +14,13 @@ import { format } from 'date-fns'
 import { cn } from '@/lib/utils'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
+import { useLanguage } from '@/components/language/language-provider'
 
 export function DealsDashboard() {
   const [filters, setFilters] = useState<DealFilters>({})
   const [dateRange, setDateRange] = useState<{ start?: Date; end?: Date }>({})
   const { data: deals, isLoading, error, refetch } = useDeals(filters)
+  const { t } = useLanguage()
 
   const navigate = useNavigate()
 
@@ -63,10 +65,10 @@ export function DealsDashboard() {
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold">LiveDealUpdate CRM</h1>
+        <h1 className="text-3xl font-bold">{t('app_title')}</h1>
         <Button onClick={() => refetch()} variant="outline" size="sm">
           <RefreshCw className="h-4 w-4 mr-2" />
-          Refresh
+          {t('refresh')}
         </Button>
       </div>
 
@@ -75,19 +77,19 @@ export function DealsDashboard() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Filter className="h-5 w-5" />
-            Filters
+            {t('filters')}
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             <div>
-              <label className="text-sm font-medium mb-2 block">Date Range</label>
+              <label className="text-sm font-medium mb-2 block">{t('date_range')}</label>
               <div className="flex gap-2">
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button variant="outline" className={cn("w-full justify-start text-left font-normal")}>
                       <CalendarIcon className="mr-2 h-4 w-4" />
-                      {dateRange.start ? format(dateRange.start, "PP") : "Start date"}
+                      {dateRange.start ? format(dateRange.start, "PP") : t('start_date')}
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0">
@@ -102,7 +104,7 @@ export function DealsDashboard() {
                   <PopoverTrigger asChild>
                     <Button variant="outline" className={cn("w-full justify-start text-left font-normal")}>
                       <CalendarIcon className="mr-2 h-4 w-4" />
-                      {dateRange.end ? format(dateRange.end, "PP") : "End date"}
+                      {dateRange.end ? format(dateRange.end, "PP") : t('end_date')}
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0">
@@ -113,12 +115,12 @@ export function DealsDashboard() {
                     />
                   </PopoverContent>
                 </Popover>
-                <Button onClick={applyDateFilter} size="sm">Apply</Button>
+                <Button onClick={applyDateFilter} size="sm">{t('apply')}</Button>
               </div>
             </div>
 
             <div>
-              <label className="text-sm font-medium mb-2 block">Loan Type</label>
+              <label className="text-sm font-medium mb-2 block">{t('loan_type')}</label>
               <Select
                 value={filters.loanType || 'all'}
                 onValueChange={(value) => handleFilterChange('loanType', value === 'all' ? undefined : value)}
@@ -138,27 +140,27 @@ export function DealsDashboard() {
             </div>
 
             <div>
-              <label className="text-sm font-medium mb-2 block">Min Amount</label>
+              <label className="text-sm font-medium mb-2 block">{t('min_amount')}</label>
               <Input
                 type="number"
-                placeholder="Min amount"
+                placeholder={t('min_amount')}
                 value={filters.minAmount || ''}
                 onChange={(e) => handleFilterChange('minAmount', e.target.value ? Number(e.target.value) : undefined)}
               />
             </div>
 
             <div>
-              <label className="text-sm font-medium mb-2 block">Max Amount</label>
+              <label className="text-sm font-medium mb-2 block">{t('max_amount')}</label>
               <Input
                 type="number"
-                placeholder="Max amount"
+                placeholder={t('max_amount')}
                 value={filters.maxAmount || ''}
                 onChange={(e) => handleFilterChange('maxAmount', e.target.value ? Number(e.target.value) : undefined)}
               />
             </div>
 
             <div>
-              <label className="text-sm font-medium mb-2 block">Status</label>
+              <label className="text-sm font-medium mb-2 block">{t('status')}</label>
               <Select
                 value={filters.status || 'all'}
                 onValueChange={(value) => handleFilterChange('status', value === 'all' ? undefined : value)}
@@ -178,7 +180,7 @@ export function DealsDashboard() {
           </div>
           <div className="flex justify-end mt-4">
             <Button onClick={resetFilters} variant="outline" size="sm">
-              Reset Filters
+              {t('reset_filters')}
             </Button>
           </div>
         </CardContent>
@@ -191,25 +193,25 @@ export function DealsDashboard() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[120px]">Date Submitted</TableHead>
-                  <TableHead>Loan Type</TableHead>
-                  <TableHead>Legal Company Name</TableHead>
-                  <TableHead>Client Name</TableHead>
-                  <TableHead className="text-right">Loan Amount</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead className="w-[140px]">{t('table_date_submitted')}</TableHead>
+                  <TableHead>{t('table_loan_type')}</TableHead>
+                  <TableHead>{t('table_company_name')}</TableHead>
+                  <TableHead>{t('table_client_name')}</TableHead>
+                  <TableHead className="text-right">{t('table_loan_amount')}</TableHead>
+                  <TableHead>{t('table_status')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
                   <TableRow>
                     <TableCell colSpan={6} className="text-center py-8">
-                      Loading deals...
+                      {t('loading_deals')}
                     </TableCell>
                   </TableRow>
                 ) : deals?.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={6} className="text-center py-8">
-                      No deals found
+                      {t('no_deals_found')}
                     </TableCell>
                   </TableRow>
                 ) : (

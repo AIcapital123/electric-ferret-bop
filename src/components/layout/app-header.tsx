@@ -4,26 +4,19 @@ import { Badge } from '@/components/ui/badge'
 import { RefreshCw, Settings } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
-
-// Create a simple email sync service inline
-class EmailSyncService {
-  async syncEmails() {
-    console.log('Syncing emails...')
-    // Mock implementation
-    return Promise.resolve()
-  }
-}
-
-const emailSyncService = new EmailSyncService()
+import { emailSyncService } from '@/components/email-sync/email-sync-service'
+import { useLanguage } from '@/components/language/language-provider'
+import { LanguageToggle } from '@/components/language/language-toggle'
 
 export function AppHeader() {
   const [isSyncing, setIsSyncing] = useState(false)
+  const { t } = useLanguage()
 
   const handleManualSync = async () => {
     setIsSyncing(true)
     try {
       await emailSyncService.syncEmails()
-      toast.success('Email sync completed')
+      toast.success(t('refresh'))
     } catch (error) {
       toast.error('Email sync failed')
     } finally {
@@ -32,25 +25,26 @@ export function AppHeader() {
   }
 
   return (
-    <header className="flex h-16 items-center gap-4 border-b bg-background px-4">
+    <header className="flex h-16 items-center gap-4 border-b border-primary bg-primary px-4 text-primary-foreground">
       <SidebarTrigger />
       <div className="flex-1">
         <div className="flex items-center gap-2">
-          <h1 className="text-xl font-bold">GoKapital CRM</h1>
-          <Badge variant="secondary">LiveDealUpdate</Badge>
+          <h1 className="text-xl font-bold">GoKapital</h1>
+          <Badge variant="secondary">{t('live_badge')}</Badge>
         </div>
       </div>
       <div className="flex items-center gap-2">
+        <LanguageToggle />
         <Button
           onClick={handleManualSync}
           disabled={isSyncing}
-          variant="outline"
+          variant="secondary"
           size="sm"
         >
           <RefreshCw className={`h-4 w-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} />
-          Sync Emails
+          {t('sync_emails')}
         </Button>
-        <Button variant="ghost" size="sm">
+        <Button variant="ghost" size="sm" className="text-primary-foreground hover:text-primary-foreground">
           <Settings className="h-4 w-4" />
         </Button>
       </div>

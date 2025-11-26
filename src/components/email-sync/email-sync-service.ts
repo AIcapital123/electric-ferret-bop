@@ -1,5 +1,6 @@
 import { showSuccess, showError } from '@/utils/toast'
 import { supabase, SUPABASE_ANON_KEY } from '@/lib/supabase'
+import { logError } from '@/lib/error-log'
 
 type IncomingEmail = {
   from: string
@@ -10,15 +11,44 @@ type IncomingEmail = {
 // Mock implementation for now
 export class EmailSyncService {
   private syncInterval: NodeJS.Timeout | null = null
+  private config: { test: boolean; query?: string; maxResults?: number } = (() => {
+    try {
+      const raw = localStorage.getItem('email_sync_config')
+      return raw ? JSON.parse(raw) : { test: true }
+    } catch {
+      return { test: true }
+    }
+  })()
+
+  setConfig(next: Partial<{ test: boolean; query?: string; maxResults?: number }>) {
+    this.config = { ...this.config, ...next }
+    localStorage.setItem('email_sync_config', JSON.stringify(this.config))
+  }
+
+  getConfig() {
+    return this.config
+  }
 
   async syncEmails() {
     try {
-      // Call the Edge Function (test mode produces sample input)
+      const body: Record<string, any> = {
+        test: !!this.config.test,
+      }
+      if (this.config.query) body.q = this.config.query
+      if (this.config.maxResults) body.maxResults = this.config.maxResults
+
       const { data, error } = await supabase.functions.invoke('gmail-sync', {
-        body: { test: true },
+        body,
+        // Let supabase-js set necessary headers automatically
       })
 
       if (error) {
+        logError({
+          source: 'edge_function',
+          code: 'invoke_error',
+          message: error.message || 'Edge Function invocation failed',
+          details: { body, error }
+        })
         throw new Error(error.message || 'Edge Function error')
       }
 
@@ -42,8 +72,14 @@ export class EmailSyncService {
       } else {
         showSuccess('Email sync completed')
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Email sync failed:', error)
+      logError({
+        source: 'client',
+        code: 'sync_failed',
+        message: error?.message || 'Failed to sync emails',
+        details: { stack: error?.stack }
+      })
       showError('Failed to sync emails')
       throw error
     }

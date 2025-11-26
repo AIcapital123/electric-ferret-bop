@@ -19,7 +19,7 @@ export class EmailSyncService {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            // Use anon key as bearer for simple auth in the function
+            apikey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVoend3YW9pdmNmYXhuem9ieWF0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQwMDQ1NTksImV4cCI6MjA2OTU4MDU1OX0.ystRCL07ocUeJUmIPJX2Xb2jp418TYiXMMT5uv-rFZE",
             Authorization: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVoend3YW9pdmNmYXhuem9ieWF0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQwMDQ1NTksImV4cCI6MjA2OTU4MDU1OX0.ystRCL07ocUeJUmIPJX2Xb2jp418TYiXMMT5uv-rFZE",
           },
           body: JSON.stringify({ test: true }),
@@ -27,8 +27,8 @@ export class EmailSyncService {
       )
 
       if (!res.ok) {
-        const err = await res.text()
-        throw new Error(err || "Edge Function error")
+        const errText = await res.text().catch(() => "")
+        throw new Error(errText || `Edge Function error: ${res.status}`)
       }
 
       const json = await res.json() as { parsed: any[]; inserted: number }

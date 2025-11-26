@@ -32,6 +32,7 @@ export function DealsDashboard() {
   const [appliedFilters, setAppliedFilters] = useState<DealFilters>({})
   const [page, setPage] = useState<number>(1)
   const [appliedPage, setAppliedPage] = useState<number>(1)
+  const [newDealsCount, setNewDealsCount] = useState<number>(0)
   const queryClient = useQueryClient()
 
   // Default to last 1 month on initial load
@@ -149,7 +150,7 @@ export function DealsDashboard() {
     })
   }
 
-  // Realtime: stream new deals and push into current page if they match appliedFilters
+  // Realtime: notify on new deals that match currently applied filters; do not mutate cache or totals
   useEffect(() => {
     const channel = supabase
       .channel('realtime-deals')
@@ -170,17 +171,17 @@ export function DealsDashboard() {
           const maxOk = appliedFilters.maxAmount === undefined || Number(newDeal.loan_amount_sought || 0) <= appliedFilters.maxAmount
 
           if (inRange && loanTypeOk && statusOk && minOk && maxOk) {
-            // Prepend to current cache for this key
-            queryClient.setQueryData(
-              ['deals', appliedFilters, appliedPage],
-              (current: { deals: Deal[]; total: number; page: number; pageSize: number } | undefined) => {
-                if (!current) return current
-                const nextDeals = [newDeal, ...current.deals]
-                // Keep only pageSize items for current page
-                const trimmed = nextDeals.slice(0, current.pageSize)
-                return { ...current, deals: trimmed, total: (current.total || 0) + 1 }
+            setNewDealsCount((c) => c + 1)
+            toast.info('New Deal', {
+              description: `${newDeal.client_name} • ${newDeal.loan_type} • $${Number(newDeal.loan_amount_sought || 0).toLocaleString()}`,
+              action: {
+                label: 'Refresh',
+                onClick: () => {
+                  applyRefresh()
+                  setNewDealsCount(0)
+                }
               }
-            )
+            })
           }
         }
       )
@@ -189,13 +190,21 @@ export function DealsDashboard() {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [appliedFilters, appliedPage, queryClient])
+  }, [appliedFilters, appliedPage])
 
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-semibold tracking-tight">{t('app_title')}</h1>
         <div className="flex items-center gap-2">
+          {newDealsCount > 0 && (
+            <div className="hidden sm:flex items-center gap-2 rounded-md bg-amber-50 text-amber-900 border border-amber-200 px-3 py-1">
+              <span className="text-sm">{newDealsCount} new {newDealsCount === 1 ? 'deal' : 'deals'}</span>
+              <Button size="sm" variant="outline" onClick={() => { applyRefresh(); setNewDealsCount(0); }}>
+                Refresh
+              </Button>
+            </div>
+          )}
           <Button onClick={syncEmailsNow} size="sm">
             <Cloud className="h-4 w-4 mr-2" />
             Sync Emails

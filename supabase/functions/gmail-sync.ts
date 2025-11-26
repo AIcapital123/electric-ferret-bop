@@ -130,96 +130,157 @@ function extractPlainTextFromPayload(payload: any): string {
 // ------------------------------------
 // Parsing: Cognito Forms
 // ------------------------------------
-function parseCognitoFormsEmail(emailBody: string, subject: string): ParsedEmail {
-  const loanTypeMatch = subject.match(/(Personal Loan|Business Loan|Equipment Leasing|Hard Money|Commercial Real Estate)/i)
-  const loan_type = loanTypeMatch ? loanTypeMatch[1] : "Unknown"
+function normalizeLoanType(input?: string): string {
+  const s = (input || "").toLowerCase();
 
-  const fields: Record<string, string> = {}
-  const lines = emailBody.split(/\r?\n/)
+  const patterns: { type: string; matchers: RegExp[] }[] = [
+    {
+      type: "Personal Loan",
+      matchers: [/personal\s+loan/i],
+    },
+    {
+      type: "Business Loan",
+      matchers: [/business\s+loan/i, /working\s+capital/i, /term\s+loan/i, /startup\s+loan/i],
+    },
+    {
+      type: "Equipment Leasing",
+      matchers: [/equipment\s+leasing/i, /equipment\s+financ(e|ing)/i, /equipment\s+loan/i],
+    },
+    {
+      type: "Hard Money",
+      matchers: [/hard\s+money/i, /bridge\s+loan/i, /fix\s*&?\s*flip/i, /\bbridge\b/i],
+    },
+    {
+      type: "Commercial Real Estate",
+      matchers: [/commercial\s+real\s+estate/i, /\bcre\b/i, /commercial\s+re/i, /commercial\s+mortgage/i],
+    },
+  ];
+
+  for (const p of patterns) {
+    if (p.matchers.some((rx) => rx.test(s))) return p.type;
+  }
+  return "Other";
+}
+
+function categorizeLoanType(subject: string, body: string): string {
+  const fromSubject = normalizeLoanType(subject);
+  if (fromSubject !== "Other") return fromSubject;
+
+  // Try body keys commonly present in Cognito mails
+  const bodyLower = (body || "").toLowerCase();
+  const candidates = [
+    "personal loan",
+    "business loan",
+    "equipment leasing",
+    "equipment financing",
+    "equipment loan",
+    "hard money",
+    "bridge loan",
+    "fix & flip",
+    "commercial real estate",
+    "cre",
+    "commercial mortgage",
+    "working capital",
+    "term loan"
+  ];
+  for (const c of candidates) {
+    if (bodyLower.includes(c)) {
+      return normalizeLoanType(c);
+    }
+  }
+  return "Other";
+}
+
+function parseCognitoFormsEmail(emailBody: string, subject: string): ParsedEmail {
+  // Derive loan type from subject/body first
+  const loan_type = categorizeLoanType(subject, emailBody);
+
+  const fields: Record<string, string> = {};
+  const lines = emailBody.split(/\r?\n/);
 
   for (const line of lines) {
-    const m1 = line.match(/^([^:–—]+)\s*[:–—]\s*(.+)$/)
-    const m2 = line.match(/^([^-]+?)\s+-\s+(.+)$/)
-    const match = m1 || m2
+    const m1 = line.match(/^([^:–—]+)\s*[:–—]\s*(.+)$/);
+    const m2 = line.match(/^([^-]+?)\s+-\s+(.+)$/);
+    const match = m1 || m2;
     if (match) {
-      const key = match[1].trim().toLowerCase().replace(/\s+/g, "_")
-      const value = match[2].trim()
-      fields[key] = value
+      const key = match[1].trim().toLowerCase().replace(/\s+/g, "_");
+      const value = match[2].trim();
+      fields[key] = value;
     }
   }
 
   const getFirst = (keys: string[]): string | undefined => {
     for (const k of keys) {
-      const v = fields[k]
-      if (v) return v
+      const v = fields[k];
+      if (v) return v;
     }
-    return undefined
-  }
+    return undefined;
+  };
 
   const normalizeCurrency = (value?: string): number => {
-    if (!value) return 0
-    const cleaned = value.replace(/[^\d.]/g, "")
-    const num = parseFloat(cleaned)
-    return isNaN(num) ? 0 : num
-  }
+    if (!value) return 0;
+    const cleaned = value.replace(/[^\d.]/g, "");
+    const num = parseFloat(cleaned);
+    return isNaN(num) ? 0 : num;
+  };
 
   const normalizeDate = (value?: string): string => {
-    const today = new Date().toISOString().split("T")[0]
-    if (!value) return today
+    const today = new Date().toISOString().split("T")[0];
+    if (!value) return today;
 
-    const d1 = new Date(value)
-    if (!isNaN(d1.getTime())) return d1.toISOString().split("T")[0]
+    const d1 = new Date(value);
+    if (!isNaN(d1.getTime())) return d1.toISOString().split("T")[0];
 
-    const mdy = value.match(/^\s*(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\s*$/)
+    const mdy = value.match(/^\s*(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\s*$/);
     if (mdy) {
-      const mm = parseInt(mdy[1], 10) - 1
-      const dd = parseInt(mdy[2], 10)
-      const yyyy = parseInt(mdy[3].length === 2 ? `20${mdy[3]}` : mdy[3], 10)
-      const d = new Date(yyyy, mm, dd)
-      if (!isNaN(d.getTime())) return d.toISOString().split("T")[0]
+      const mm = parseInt(mdy[1], 10) - 1;
+      const dd = parseInt(mdy[2], 10);
+      const yyyy = parseInt(mdy[3].length === 2 ? `20${mdy[3]}` : mdy[3], 10);
+      const d = new Date(yyyy, mm, dd);
+      if (!isNaN(d.getTime())) return d.toISOString().split("T")[0];
     }
 
     const months = [
       "january","february","march","april","may","june",
       "july","august","september","october","november","december"
-    ]
-    const mon = months.findIndex(m => value.toLowerCase().includes(m))
+    ];
+    const mon = months.findIndex(m => value.toLowerCase().includes(m));
     if (mon >= 0) {
-      const dayMatch = value.match(/(\d{1,2})(?:st|nd|rd|th)?/)
-      const yearMatch = value.match(/(\d{4})/)
-      const dd = dayMatch ? parseInt(dayMatch[1], 10) : 1
-      const yyyy = yearMatch ? parseInt(yearMatch[1], 10) : new Date().getFullYear()
-      const d = new Date(yyyy, mon, dd)
-      if (!isNaN(d.getTime())) return d.toISOString().split("T")[0]
+      const dayMatch = value.match(/(\d{1,2})(?:st|nd|rd|th)?/);
+      const yearMatch = value.match(/(\d{4})/);
+      const dd = dayMatch ? parseInt(dayMatch[1], 10) : 1;
+      const yyyy = yearMatch ? parseInt(yearMatch[1], 10) : new Date().getFullYear();
+      const d = new Date(yyyy, mon, dd);
+      if (!isNaN(d.getTime())) return d.toISOString().split("T")[0];
     }
 
-    return today
-  }
+    return today;
+  };
 
-  const legalCompanyKeys = ["legal_company_name","company_name","business_name","legal_business_name","company","business"]
-  const clientNameKeys = ["client_name","name","full_name","applicant_name","contact_name"]
-  const emailKeys = ["client_email","email","email_address"]
-  const phoneKeys = ["client_phone","phone","telephone","mobile","phone_number"]
-  const amountKeys = ["loan_amount_sought","loan_amount","amount_requested","requested_amount","total_loan_amount","loan_amount"]
-  const cityKeys = ["city","town"]
-  const stateKeys = ["state","province"]
-  const zipKeys = ["zip","postal_code","zip_code"]
-  const purposeKeys = ["purpose","loan_purpose","purpose_of_loan","use_of_funds"]
-  const employmentTypeKeys = ["employment_type","employment_status"]
-  const employerKeys = ["employer_name","employer","company","business"]
-  const jobTitleKeys = ["job_title","position","title"]
-  const salaryKeys = ["salary","income","annual_income","monthly_income"]
-  const referralKeys = ["referral","referral_name","source","how_did_you_hear_about_us"]
-  const dateKeys = ["date_submitted","submitted_date","submission_date","date"]
+  const legalCompanyKeys = ["legal_company_name","company_name","business_name","legal_business_name","company","business"];
+  const clientNameKeys = ["client_name","name","full_name","applicant_name","contact_name"];
+  const emailKeys = ["client_email","email","email_address"];
+  const phoneKeys = ["client_phone","phone","telephone","mobile","phone_number"];
+  const amountKeys = ["loan_amount_sought","loan_amount","amount_requested","requested_amount","total_loan_amount","loan_amount"];
+  const cityKeys = ["city","town"];
+  const stateKeys = ["state","province"];
+  const zipKeys = ["zip","postal_code","zip_code"];
+  const purposeKeys = ["purpose","loan_purpose","purpose_of_loan","use_of_funds"];
+  const employmentTypeKeys = ["employment_type","employment_status"];
+  const employerKeys = ["employer_name","employer","company","business"];
+  const jobTitleKeys = ["job_title","position","title"];
+  const salaryKeys = ["salary","income","annual_income","monthly_income"];
+  const referralKeys = ["referral","referral_name","source","how_did_you_hear_about_us"];
+  const dateKeys = ["date_submitted","submitted_date","submission_date","date"];
 
-  const amountStr = getFirst(amountKeys)
-  const loan_amount_sought = normalizeCurrency(amountStr)
-  const dateStr = getFirst(dateKeys) || new Date().toISOString()
-  const date_submitted = normalizeDate(dateStr)
+  const amountStr = getFirst(amountKeys);
+  const loan_amount_sought = normalizeCurrency(amountStr);
+  const dateStr = getFirst(dateKeys) || new Date().toISOString();
+  const date_submitted = normalizeDate(dateStr);
 
-  const subjectNameMatch = subject.match(/application\s*[-:]\s*(.+)$/i)
-  const subjectName = subjectNameMatch ? subjectNameMatch[1].trim() : undefined
-  const salaryVal = normalizeCurrency(getFirst(salaryKeys))
+  const subjectNameMatch = subject.match(/application\s*[-:]\s*(.+)$/i);
+  const subjectName = subjectNameMatch ? subjectNameMatch[1].trim() : undefined;
+  const salaryVal = normalizeCurrency(getFirst(salaryKeys));
 
   return {
     date_submitted,
@@ -238,7 +299,7 @@ function parseCognitoFormsEmail(emailBody: string, subject: string): ParsedEmail
     job_title: getFirst(jobTitleKeys),
     salary: salaryVal,
     referral: getFirst(referralKeys),
-  }
+  };
 }
 
 // ------------------------------------
@@ -349,9 +410,11 @@ async function getMessage(accessToken: string, id: string): Promise<any> {
 
 function isCognitoApplicationEmail(from: string, subject: string): boolean {
   const isCognito =
-    from.includes("cognitoforms.com") || from.includes("notifications@cognitoforms.com")
-  const hasApplication = /application/i.test(subject)
-  return isCognito && hasApplication
+    from.includes("cognitoforms.com") || from.includes("notifications@cognitoforms.com");
+  // Accept if subject mentions "application" OR contains recognizable loan-type keywords
+  const hasApplication = /application/i.test(subject);
+  const hasLoanType = normalizeLoanType(subject) !== "Other";
+  return isCognito && (hasApplication || hasLoanType);
 }
 
 function extractEmailMetaFromGmailMessage(gm: any): EmailMeta {

@@ -25,6 +25,18 @@ export function AppSidebar() {
     <Sidebar>
       <SidebarHeader>
         <div className="px-4 py-3">
+          <button
+            type="button"
+            onClick={() => navigate('/')}
+            className="flex items-center gap-2 hover:opacity-90 transition-opacity cursor-pointer"
+            aria-label="Go to Dashboard"
+          >
+            <img
+              src="/gokapital-logo.png"
+              alt="GoKapital"
+              className="h-7 w-auto"
+            />
+          </button>
         </div>
       </SidebarHeader>
       <SidebarContent>

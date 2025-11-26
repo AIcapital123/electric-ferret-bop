@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useDeals } from '@/hooks/use-deals'
 import { Deal, DealFilters } from '@/types/database'
 import { Button } from '@/components/ui/button'
@@ -33,6 +33,10 @@ export function DealsDashboard() {
   const [page, setPage] = useState<number>(1)
   const [appliedPage, setAppliedPage] = useState<number>(1)
   const [newDealsCount, setNewDealsCount] = useState<number>(0)
+
+  // Store per-deal reminder timer IDs so we can cancel them on Refresh
+  const reminderTimersRef = useRef<Record<string, number>>({})
+
   const queryClient = useQueryClient()
 
   // Default to last 1 month on initial load
@@ -77,6 +81,8 @@ export function DealsDashboard() {
   }
 
   const applyRefresh = () => {
+    // Suppress any pending 30s reminders when user refreshes
+    clearReminders()
     setAppliedFilters(filters)
     setAppliedPage(page)
   }
@@ -85,6 +91,12 @@ export function DealsDashboard() {
     await emailSyncService.syncEmails()
     toast.success('Email sync started')
     // Do not refetch automatically; new deals will stream via Realtime
+  }
+
+  const clearReminders = () => {
+    const timers = reminderTimersRef.current
+    Object.values(timers).forEach((id) => clearTimeout(id))
+    reminderTimersRef.current = {}
   }
 
   if (error) {
@@ -186,8 +198,8 @@ export function DealsDashboard() {
               duration: 5000
             })
 
-            // Final reminder after 30 seconds (also 5s)
-            setTimeout(() => {
+            // Final reminder after 30 seconds (also 5s), stored so we can cancel on Refresh
+            const reminderId = window.setTimeout(() => {
               toast.info('New Deal Reminder', {
                 description: `${newDeal.client_name} • ${newDeal.loan_type} • $${Number(newDeal.loan_amount_sought || 0).toLocaleString()}`,
                 action: {
@@ -199,13 +211,19 @@ export function DealsDashboard() {
                 },
                 duration: 5000
               })
+              // After firing, remove from map
+              delete reminderTimersRef.current[newDeal.id]
             }, 30000)
+
+            reminderTimersRef.current[newDeal.id] = reminderId
           }
         }
       )
       .subscribe()
 
     return () => {
+      // Ensure timers are cleared on cleanup, and unsubscribe
+      clearReminders()
       supabase.removeChannel(channel)
     }
   }, [appliedFilters, appliedPage])

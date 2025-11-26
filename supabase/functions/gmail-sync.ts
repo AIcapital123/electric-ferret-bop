@@ -310,7 +310,7 @@ function parseCognitoFormsEmail(
 // Sample recognized loan types from the last 4 months of Cognito emails
 async function sampleRecognizedLoanTypes(accessToken: string): Promise<Set<string>> {
   const recognized = new Set<string>()
-  const baseQuery = "from:notifications@cognitoforms.com to:deals@gokapital.com"
+  const baseQuery = "from:notifications@cognitoforms.com (to:deals@gokapital.com OR to:deals@gokpital.com)"
 
   const today = clampDate(new Date())
   const fourMonthsAgo = clampDate(new Date(today.getFullYear(), today.getMonth() - 4, today.getDate()))
@@ -400,7 +400,7 @@ function buildGmailQuery(body: SyncRequestBody): string {
   // Base query: Cognito notifications addressed to deals@gokapital.com
   const baseQuery =
     body?.q ??
-    "from:notifications@cognitoforms.com to:deals@gokapital.com"
+    "from:notifications@cognitoforms.com (to:deals@gokapital.com OR to:deals@gokpital.com)"
 
   const today = clampDate(new Date())
   const twoYearsAgo = clampDate(new Date(today.getFullYear() - 2, today.getMonth(), today.getDate()))

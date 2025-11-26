@@ -41,7 +41,9 @@ export class EmailSyncService {
 
       const { data, error } = await supabase.functions.invoke('gmail-sync', {
         body,
-        // Let supabase-js set necessary headers automatically
+        headers: {
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        },
       })
 
       if (error) {

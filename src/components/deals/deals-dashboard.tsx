@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useDeals } from '@/hooks/use-deals'
-import { DealFilters } from '@/types/database'
+import { Deal, DealFilters } from '@/types/database'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -22,11 +22,33 @@ import {
   PaginationNext,
   PaginationPrevious
 } from '@/components/ui/pagination'
+import { useQueryClient } from '@tanstack/react-query'
+import { supabase } from '@/lib/supabase'
 
 export function DealsDashboard() {
+  // Pending filters user is editing
   const [filters, setFilters] = useState<DealFilters>({})
+  // Applied filters used for fetching (only updated by Refresh)
+  const [appliedFilters, setAppliedFilters] = useState<DealFilters>({})
   const [page, setPage] = useState<number>(1)
-  const { data, isLoading, error, refetch } = useDeals(filters, page)
+  const [appliedPage, setAppliedPage] = useState<number>(1)
+  const queryClient = useQueryClient()
+
+  // Default to last 1 month on initial load
+  useEffect(() => {
+    const today = new Date()
+    const start = subMonths(today, 1)
+    const preset = {
+      dateRange: {
+        start: format(start, 'yyyy-MM-dd'),
+        end: format(today, 'yyyy-MM-dd')
+      }
+    }
+    setFilters((prev) => ({ ...prev, ...preset }))
+    setAppliedFilters((prev) => ({ ...prev, ...preset }))
+  }, [])
+
+  const { data, isLoading, error } = useDeals(appliedFilters, appliedPage)
   const deals = data?.deals || []
   const total = data?.total || 0
   const pageSize = data?.pageSize || 25
@@ -35,8 +57,8 @@ export function DealsDashboard() {
   const { t } = useLanguage()
   const navigate = useNavigate()
 
+  // Do not auto-refetch when filters change; user must click Refresh
   useEffect(() => {
-    // Reset to first page when filters change
     setPage(1)
   }, [filters.loanType, filters.minAmount, filters.maxAmount, filters.status, filters.dateRange?.start, filters.dateRange?.end])
 
@@ -50,12 +72,18 @@ export function DealsDashboard() {
 
   const resetFilters = () => {
     setFilters({})
+    setPage(1)
+  }
+
+  const applyRefresh = () => {
+    setAppliedFilters(filters)
+    setAppliedPage(page)
   }
 
   const syncEmailsNow = async () => {
     await emailSyncService.syncEmails()
     toast.success('Email sync started')
-    refetch()
+    // Do not refetch automatically; new deals will stream via Realtime
   }
 
   if (error) {
@@ -121,6 +149,48 @@ export function DealsDashboard() {
     })
   }
 
+  // Realtime: stream new deals and push into current page if they match appliedFilters
+  useEffect(() => {
+    const channel = supabase
+      .channel('realtime-deals')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'deals' },
+        (payload) => {
+          const newDeal = payload.new as Deal
+          const inRange =
+            !appliedFilters.dateRange ||
+            (
+              newDeal.date_submitted >= appliedFilters.dateRange.start! &&
+              newDeal.date_submitted <= appliedFilters.dateRange.end!
+            )
+          const loanTypeOk = !appliedFilters.loanType || newDeal.loan_type === appliedFilters.loanType
+          const statusOk = !appliedFilters.status || newDeal.status === appliedFilters.status
+          const minOk = appliedFilters.minAmount === undefined || Number(newDeal.loan_amount_sought || 0) >= appliedFilters.minAmount
+          const maxOk = appliedFilters.maxAmount === undefined || Number(newDeal.loan_amount_sought || 0) <= appliedFilters.maxAmount
+
+          if (inRange && loanTypeOk && statusOk && minOk && maxOk) {
+            // Prepend to current cache for this key
+            queryClient.setQueryData(
+              ['deals', appliedFilters, appliedPage],
+              (current: { deals: Deal[]; total: number; page: number; pageSize: number } | undefined) => {
+                if (!current) return current
+                const nextDeals = [newDeal, ...current.deals]
+                // Keep only pageSize items for current page
+                const trimmed = nextDeals.slice(0, current.pageSize)
+                return { ...current, deals: trimmed, total: (current.total || 0) + 1 }
+              }
+            )
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [appliedFilters, appliedPage, queryClient])
+
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -130,7 +200,7 @@ export function DealsDashboard() {
             <Cloud className="h-4 w-4 mr-2" />
             Sync Emails
           </Button>
-          <Button onClick={() => refetch()} variant="outline" size="sm">
+          <Button onClick={applyRefresh} variant="outline" size="sm">
             <RefreshCw className="h-4 w-4 mr-2" />
             {t('refresh')}
           </Button>
@@ -151,16 +221,12 @@ export function DealsDashboard() {
             <div className="md:col-span-2 lg:col-span-2">
               <label className="text-sm font-medium mb-2 block">{t('date_range')}</label>
               <Select
-                value={
-                  filters.dateRange
-                    ? 'custom'
-                    : 'none'
-                }
+                value={filters.dateRange ? 'custom' : '1m'}
                 onValueChange={(value) => {
                   if (value === 'none') {
                     applyPreset('none')
                   } else if (value === '1w' || value === '2w' || value === '1m' || value === '2m' || value === '3m' || value === '6m' || value === '12m' || value === '18m' || value === '24m') {
-                    applyPreset(value as PresetKey)
+                    applyPreset(value as any)
                   }
                 }}
               >
@@ -168,10 +234,9 @@ export function DealsDashboard() {
                   <SelectValue placeholder="Choose range" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">All time</SelectItem>
+                  <SelectItem value="1m">1 month ago</SelectItem>
                   <SelectItem value="1w">1 week ago</SelectItem>
                   <SelectItem value="2w">2 weeks ago</SelectItem>
-                  <SelectItem value="1m">1 month ago</SelectItem>
                   <SelectItem value="2m">2 months ago</SelectItem>
                   <SelectItem value="3m">3 months ago</SelectItem>
                   <SelectItem value="6m">6 months ago</SelectItem>
@@ -253,6 +318,12 @@ export function DealsDashboard() {
               <Button onClick={resetFilters} variant="outline" size="sm">
                 {t('reset_filters')}
               </Button>
+              <Button onClick={() => setPage((p) => Math.max(1, p - 1))} variant="outline" size="sm" className={page <= 1 ? 'pointer-events-none opacity-50' : ''}>
+                Prev page
+              </Button>
+              <Button onClick={() => setPage((p) => p + 1)} variant="outline" size="sm" className={page >= maxPages ? 'pointer-events-none opacity-50' : ''}>
+                Next page
+              </Button>
             </div>
           </div>
         </CardContent>
@@ -319,20 +390,19 @@ export function DealsDashboard() {
           <PaginationItem>
             <PaginationPrevious
               href="#"
-              onClick={(e) => { e.preventDefault(); setPage((p) => Math.max(1, p - 1)) }}
-              className={page <= 1 ? 'pointer-events-none opacity-50' : ''}
+              onClick={(e) => { e.preventDefault(); setAppliedPage((p) => Math.max(1, p - 1)); setPage((p) => Math.max(1, p - 1)); applyRefresh() }}
+              className={appliedPage <= 1 ? 'pointer-events-none opacity-50' : ''}
             />
           </PaginationItem>
           {Array.from({ length: Math.min(5, maxPages) }, (_, i) => {
-            // Show a sliding window of up to 5 pages around current
-            const start = Math.max(1, Math.min(page - 2, maxPages - 4))
+            const start = Math.max(1, Math.min(appliedPage - 2, maxPages - 4))
             const pageNum = start + i
             return (
               <PaginationItem key={pageNum}>
                 <PaginationLink
                   href="#"
-                  isActive={pageNum === page}
-                  onClick={(e) => { e.preventDefault(); setPage(pageNum) }}
+                  isActive={pageNum === appliedPage}
+                  onClick={(e) => { e.preventDefault(); setAppliedPage(pageNum); setPage(pageNum); applyRefresh() }}
                 >
                   {pageNum}
                 </PaginationLink>
@@ -342,8 +412,8 @@ export function DealsDashboard() {
           <PaginationItem>
             <PaginationNext
               href="#"
-              onClick={(e) => { e.preventDefault(); setPage((p) => Math.min(maxPages, p + 1)) }}
-              className={page >= maxPages ? 'pointer-events-none opacity-50' : ''}
+              onClick={(e) => { e.preventDefault(); setAppliedPage((p) => Math.min(maxPages, p + 1)); setPage((p) => Math.min(maxPages, p + 1)); applyRefresh() }}
+              className={appliedPage >= maxPages ? 'pointer-events-none opacity-50' : ''}
             />
           </PaginationItem>
         </PaginationContent>

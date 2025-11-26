@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Deal, DealFilters } from '@/types/database'
+import { Deal, DealFilters, Note } from '@/types/database'
 import { supabase } from '@/lib/supabase'
 
 export function useDeals(filters: DealFilters = {}, page: number = 1) {
@@ -14,7 +14,9 @@ export function useDeals(filters: DealFilters = {}, page: number = 1) {
       }
       const result = data as { deals: Deal[]; total: number; page: number; pageSize: number }
       return result
-    }
+    },
+    // Avoid auto refetch on window focus; user clicks Refresh to refetch
+    refetchOnWindowFocus: false,
   })
 }
 
@@ -29,23 +31,33 @@ export function useDeal(id: string) {
       const result = data as { deals: Deal[] }
       const deals = result.deals || []
       return deals.find((d) => d.id === id) || null
-    }
+    },
+    refetchOnWindowFocus: false,
   })
 }
 
 export function useDealNotes(dealId: string) {
   return useQuery({
     queryKey: ['deal-notes', dealId],
-    // Return empty list for now to satisfy typings; can be wired later
-    queryFn: async (): Promise<any[]> => []
+    queryFn: async (): Promise<Note[]> => {
+      const { data, error } = await supabase.functions.invoke('list-deal-notes', {
+        body: { dealId },
+      })
+      if (error) {
+        throw new Error(error.message || 'Failed to load notes')
+      }
+      const result = data as { notes: Note[] }
+      return result.notes || []
+    },
+    refetchOnWindowFocus: false,
   })
 }
 
 export function useDealEmails(dealId: string) {
   return useQuery({
     queryKey: ['deal-emails', dealId],
-    // Return empty list for now to satisfy typings; can be wired later
-    queryFn: async (): Promise<any[]> => []
+    queryFn: async (): Promise<any[]> => [],
+    refetchOnWindowFocus: false,
   })
 }
 
@@ -67,7 +79,12 @@ export function useAddNote() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async ({ dealId, author, body }: { dealId: string; author: string; body: string }) => {
-      return { id: crypto.randomUUID(), deal_id: dealId, author, body, created_at: new Date().toISOString() }
+      const { data, error } = await supabase.functions.invoke('add-deal-note', {
+        body: { dealId, author, body },
+      })
+      if (error) throw new Error(error.message || 'Failed to add note')
+      const result = data as { note: Note }
+      return result.note
     },
     onSuccess: (_note, variables) => {
       queryClient.invalidateQueries({ queryKey: ['deal-notes', variables.dealId] })

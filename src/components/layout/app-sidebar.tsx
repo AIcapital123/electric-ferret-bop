@@ -24,15 +24,15 @@ export function AppSidebar() {
   return (
     <Sidebar>
       <SidebarHeader>
-        <div className="px-4 py-3">
+        <div className="px-3 py-3">
           <button
             type="button"
             onClick={() => navigate('/')}
-            className="flex items-center gap-2 hover:opacity-90 transition-opacity cursor-pointer"
+            className="flex items-center gap-2 hover:opacity-90 transition-opacity cursor-pointer w-full"
             aria-label="Go to Dashboard"
           >
             <div
-              className="h-7 w-28 bg-white"
+              className="h-12 w-full bg-white md:h-14"
               style={{
                 WebkitMaskImage: 'url(/gokapital-logo.png)',
                 WebkitMaskRepeat: 'no-repeat',

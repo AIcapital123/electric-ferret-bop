@@ -15,9 +15,11 @@ export class EmailSyncService {
     try {
       // Call the Edge Function (test mode produces sample input)
       const { data, error } = await supabase.functions.invoke('gmail-sync', {
-        body: {},
+        body: { test: true },
         headers: {
           Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          apikey: SUPABASE_ANON_KEY,
+          'Content-Type': 'application/json',
         },
       })
 

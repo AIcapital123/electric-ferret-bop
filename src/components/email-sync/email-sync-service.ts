@@ -1,5 +1,5 @@
 import { showSuccess, showError } from '@/utils/toast'
-import { supabase } from '@/lib/supabase'
+import { supabase, SUPABASE_ANON_KEY } from '@/lib/supabase'
 
 type IncomingEmail = {
   from: string
@@ -14,8 +14,12 @@ export class EmailSyncService {
   async syncEmails() {
     try {
       // Call the Edge Function (test mode produces sample input)
-      const { data, error } = await supabase.functions.invoke('gmail-sync', {
+      const { data, error } = await supabase.functions.invoke('https://ehzwwaoivcfaxnzobyat.supabase.co/functions/v1/gmail-sync', {
         body: {},
+        headers: {
+          // Function checks for presence of Authorization; using anon key here to satisfy it.
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        },
       })
 
       if (error) {

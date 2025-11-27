@@ -34,7 +34,7 @@ export function AppHeader() {
       <SidebarTrigger />
       <div className="flex-1">
         <div className="flex items-center gap-2">
-          <span className="text-lg font-semibold tracking-wide text-green-600">LiveDealTracker</span>
+          <span className="text-lg font-semibold tracking-wide text-green-600">GoKapital CRM</span>
         </div>
       </div>
       <div className="flex items-center gap-2">

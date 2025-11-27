@@ -36,19 +36,7 @@ export function AppSidebar() {
             className="flex items-center gap-2 hover:opacity-90 transition-opacity cursor-pointer w-full"
             aria-label="Go to Dashboard"
           >
-            <div
-              className="h-12 w-full bg-white md:h-14"
-              style={{
-                WebkitMaskImage: 'url(/gokapital-logo.png)',
-                WebkitMaskRepeat: 'no-repeat',
-                WebkitMaskPosition: 'center',
-                WebkitMaskSize: 'contain',
-                maskImage: 'url(/gokapital-logo.png)',
-                maskRepeat: 'no-repeat',
-                maskPosition: 'center',
-                maskSize: 'contain',
-              }}
-            />
+            <span className="text-white text-lg font-semibold tracking-wide">GoKapital CRM</span>
           </button>
         </div>
       </SidebarHeader>

@@ -13,7 +13,7 @@ export default function Header({ syncing, onSync, onRefresh, onSignOut }: Header
       <div className="px-6 py-4 flex items-center justify-between">
         <div className="flex items-center">
           <div className="w-3 h-3 bg-green-500 rounded-full mr-2"></div>
-          <span className="text-sm font-medium text-gray-900">LiveDealTracker</span>
+          <span className="text-sm font-medium text-gray-900">GoKapital CRM</span>
           <select className="ml-4 text-sm border-0 bg-transparent">
             <option>English</option>
           </select>

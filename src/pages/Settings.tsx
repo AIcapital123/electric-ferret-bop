@@ -10,6 +10,7 @@ import { useErrorLog, clearErrors } from '@/lib/error-log';
 import { emailSyncService } from '@/components/email-sync/email-sync-service';
 import { useState, useEffect } from 'react';
 import { useLanguage } from '@/components/language/language-provider';
+import { supabase } from '@/lib/supabase';
 
 export default function SettingsPage() {
   const errors = useErrorLog();
@@ -18,8 +19,17 @@ export default function SettingsPage() {
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
   const { t } = useLanguage();
+  const [isAdmin, setIsAdmin] = useState<boolean>(false);
 
   useEffect(() => {
+    const checkAdmin = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      const email = user?.email?.toLowerCase() || '';
+      const admins = new Set(['chris@gokapital.com','deals@gokapital.com','info@gokapital.com']);
+      setIsAdmin(admins.has(email));
+    };
+    checkAdmin();
+
     const cfg = emailSyncService.getConfig();
     setTestMode(!!cfg.test);
     setQuery(cfg.query || '');
@@ -41,75 +51,71 @@ export default function SettingsPage() {
       <main className="flex-1">
         <AppHeader />
         <div className="container mx-auto p-6 space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>{t('parsing_sync_configuration')}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
+          {isAdmin && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Legacy Gmail Sync (Admin only)</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-medium">{t('test_mode')}</div>
+                    <div className="text-xs text-muted-foreground">{t('test_mode_desc')}</div>
+                  </div>
+                  <Switch checked={testMode} onCheckedChange={setTestMode} />
+                </div>
                 <div>
-                  <div className="text-sm font-medium">{t('test_mode')}</div>
-                  <div className="text-xs text-muted-foreground">{t('test_mode_desc')}</div>
+                  <div className="text-sm font-medium mb-2">{t('gmail_search_query')}</div>
+                  <Input
+                    placeholder='from:notifications@cognitoforms.com subject:(application) within 30 days'
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                  />
                 </div>
-                <Switch checked={testMode} onCheckedChange={setTestMode} />
-              </div>
-              <div>
-                <div className="text-sm font-medium mb-2">{t('gmail_search_query')}</div>
-                <Input
-                  placeholder='from:notifications@cognitoforms.com subject:(application) within 30 days'
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                />
-              </div>
-              <div>
-                <div className="text-sm font-medium mb-2">{t('date_range')}</div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {/* Start Date */}
-                  <div className="space-y-1">
-                    <div className="text-xs text-muted-foreground">{t('start_date')}</div>
-                    <Input
-                      type="date"
-                      value={startDate}
-                      onChange={(e) => setStartDate(e.target.value)}
-                      // Allow up to 2 years back
-                      min={(() => {
-                        const d = new Date()
-                        d.setFullYear(d.getFullYear() - 2)
-                        return d.toISOString().split('T')[0]
-                      })()}
-                      // If endDate set, cap start at endDate
-                      max={endDate ? endDate : new Date().toISOString().split('T')[0]}
-                    />
+                <div>
+                  <div className="text-sm font-medium mb-2">{t('date_range')}</div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <div className="text-xs text-muted-foreground">{t('start_date')}</div>
+                      <Input
+                        type="date"
+                        value={startDate}
+                        onChange={(e) => setStartDate(e.target.value)}
+                        min={(() => {
+                          const d = new Date()
+                          d.setFullYear(d.getFullYear() - 2)
+                          return d.toISOString().split('T')[0]
+                        })()}
+                        max={endDate ? endDate : new Date().toISOString().split('T')[0]}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-xs text-muted-foreground">{t('end_date')}</div>
+                      <Input
+                        type="date"
+                        value={endDate}
+                        onChange={(e) => setEndDate(e.target.value)}
+                        max={new Date().toISOString().split('T')[0]}
+                        min={(() => {
+                          const twoYearsAgo = new Date()
+                          twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2)
+                          const minByRange = startDate ? startDate : twoYearsAgo.toISOString().split('T')[0]
+                          return minByRange
+                        })()}
+                      />
+                    </div>
                   </div>
-                  {/* End Date */}
-                  <div className="space-y-1">
-                    <div className="text-xs text-muted-foreground">{t('end_date')}</div>
-                    <Input
-                      type="date"
-                      value={endDate}
-                      onChange={(e) => setEndDate(e.target.value)}
-                      // End cannot be in the future
-                      max={new Date().toISOString().split('T')[0]}
-                      // End should not be before start
-                      min={(() => {
-                        const twoYearsAgo = new Date()
-                        twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2)
-                        const minByRange = startDate ? startDate : twoYearsAgo.toISOString().split('T')[0]
-                        return minByRange
-                      })()}
-                    />
-                  </div>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Select a range up to 2 years back; the end date cannot be in the future.
+                  </p>
                 </div>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Select a range up to 2 years back; the end date cannot be in the future.
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <Button onClick={saveConfig}>{t('save')}</Button>
-                <Button variant="outline" onClick={runTest}>{t('run_test_sync')}</Button>
-              </div>
-            </CardContent>
-          </Card>
+                <div className="flex gap-2">
+                  <Button onClick={saveConfig}>{t('save')}</Button>
+                  <Button variant="outline" onClick={runTest}>{t('run_test_sync')}</Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader>

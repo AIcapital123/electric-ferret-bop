@@ -21,7 +21,10 @@ export function AppHeader() {
         method: 'GET'
       })
       if (error) throw error
-      toast.success(t('refresh'))
+      const processed = (data as any)?.processed ?? 0
+      const skipped = (data as any)?.skipped ?? 0
+      const errors = (data as any)?.errors ?? 0
+      toast.success(`Sync completed • Processed: ${processed}, Skipped: ${skipped}, Errors: ${errors}`)
     } catch (error: any) {
       toast.error(error?.message || 'Cognito sync failed')
     } finally {

@@ -24,6 +24,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import StatusTag from '@/components/deals/status-tag'
 import { formatInTimeZone } from 'date-fns-tz'
+import CsvExportButton from '@/components/deals/csv-export-button'
 
 export function DealsDashboard() {
   const [filters, setFilters] = useState<DealFilters>({})
@@ -185,6 +186,7 @@ export function DealsDashboard() {
               </Button>
             </div>
           )}
+          <CsvExportButton deals={deals} />
           <Button onClick={applyRefresh} variant="outline" size="sm">
             <RefreshCw className="h-4 w-4 mr-2" />
             {t('refresh')}

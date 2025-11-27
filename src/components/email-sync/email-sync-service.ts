@@ -1,5 +1,5 @@
 import { showSuccess, showError } from '@/utils/toast'
-import { supabase, SUPABASE_ANON_KEY } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase'
 import { logError } from '@/lib/error-log'
 
 type IncomingEmail = {
@@ -39,10 +39,23 @@ export class EmailSyncService {
       if (this.config.startDate) body.startDate = this.config.startDate
       if (this.config.endDate) body.endDate = this.config.endDate
 
+      // Get the current user's access token for Authorization
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
+      const accessToken = sessionData?.session?.access_token
+      if (sessionError || !accessToken) {
+        logError({
+          source: 'client',
+          code: 'no_session',
+          message: 'No authenticated session found for Gmail sync',
+          details: { sessionError }
+        })
+        throw new Error('Not authenticated')
+      }
+
       const { data, error } = await supabase.functions.invoke('sync-gmail', {
         body,
         headers: {
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          Authorization: `Bearer ${accessToken}`,
         },
       })
 

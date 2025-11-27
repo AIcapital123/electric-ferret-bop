@@ -10,8 +10,8 @@ const corsHeaders = {
 
 type Body = {
   q?: string;
-  startDate?: string; // YYYY-MM-DD
-  endDate?: string;   // YYYY-MM-DD
+  startDate?: string;
+  endDate?: string;
   maxResults?: number;
   test?: boolean;
 };
@@ -24,9 +24,7 @@ function json(payload: unknown, status = 200): Response {
 }
 
 function toGmailDate(d?: string): string | undefined {
-  if (!d) return undefined;
-  // Gmail uses YYYY/MM/DD in query filters
-  return d.replace(/-/g, "/");
+  return d ? d.replace(/-/g, "/") : undefined;
 }
 
 function detectLoanType(subject: string): string {
@@ -37,10 +35,8 @@ function detectLoanType(subject: string): string {
     "Hard Money",
     "Commercial Real Estate",
   ];
-  const lower = subject.toLowerCase();
-  for (const t of types) {
-    if (lower.includes(t.toLowerCase())) return t;
-  }
+  const lower = (subject || "").toLowerCase();
+  for (const t of types) if (lower.includes(t.toLowerCase())) return t;
   return "Personal Loan";
 }
 
@@ -50,6 +46,32 @@ function extractEmailParts(fromHeader?: string): { name?: string; email?: string
   const email = emailMatch ? emailMatch[1] : undefined;
   const name = fromHeader.replace(/<[^>]+>/, "").trim().replace(/^"|"$/g, "") || undefined;
   return { name, email };
+}
+
+async function getAccessTokenFromRefresh(refreshToken: string): Promise<{ accessToken: string; expiresAt: number | null } | null> {
+  const clientId = Deno.env.get("GOOGLE_CLIENT_ID") ?? "";
+  const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET") ?? "";
+  if (!clientId || !clientSecret || !refreshToken) return null;
+
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: refreshToken,
+      grant_type: "refresh_token",
+    }),
+  });
+
+  if (!res.ok) {
+    console.error("Token refresh failed:", await res.text());
+    return null;
+  }
+  const j = await res.json();
+  const accessToken = j.access_token as string;
+  const expiresAt = typeof j.expires_in === "number" ? Math.floor(Date.now() / 1000) + Number(j.expires_in) : null;
+  return { accessToken, expiresAt };
 }
 
 serve(async (req) => {
@@ -65,110 +87,89 @@ serve(async (req) => {
     if (!supabaseUrl || !supabaseKey) {
       return json({ error: "Supabase env not set" }, 500);
     }
-
     const supabase = createClient(supabaseUrl, supabaseKey);
-
-    // Manual auth since verify_jwt=false
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return json({ error: "No authorization header" }, 401);
-    }
-    const token = authHeader.replace("Bearer ", "");
-    const { data: userRes, error: userError } = await supabase.auth.getUser(token);
-    if (userError || !userRes?.user) {
-      return json({ error: "Invalid user token" }, 401);
-    }
-    const user = userRes.user;
-    console.log("✅ User authenticated:", user.email);
 
     const body: Body = await req.json().catch(() => ({}));
     const maxResults = Math.max(1, Math.min(100, Number(body.maxResults || 25)));
 
-    // Load Google account credentials
-    const { data: account, error: accountError } = await supabase
-      .from("accounts")
-      .select("access_token, refresh_token, expires_at")
-      .eq("user_id", user.id)
-      .eq("provider", "google")
-      .single();
-
-    if (accountError || !account) {
-      console.error("No connected Gmail account", accountError);
-      return json({ error: "No Gmail account connected" }, 400);
+    // Try user-scoped token via Authorization header. If not present, fall back to server-managed refresh token.
+    const authHeader = req.headers.get("Authorization");
+    let userId: string | null = null;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      const token = authHeader.replace("Bearer ", "");
+      const { data: userRes, error: userError } = await supabase.auth.getUser(token);
+      if (!userError && userRes?.user) {
+        userId = userRes.user.id;
+        console.log("✅ User authenticated:", userRes.user.email);
+      } else {
+        console.warn("Authorization header invalid; continuing with fallback token.");
+      }
+    } else {
+      console.log("No Authorization header; using server-managed Gmail token.");
     }
 
-    let accessToken = account.access_token as string;
-    const expiresAt = account.expires_at as number | null;
+    let accessToken: string | null = null;
 
-    // Refresh if expired
-    if (expiresAt && Date.now() > expiresAt * 1000) {
-      console.log("🔄 Refreshing token");
-      const refreshResponse = await fetch("https://oauth2.googleapis.com/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          client_id: Deno.env.get("GOOGLE_CLIENT_ID") ?? "",
-          client_secret: Deno.env.get("GOOGLE_CLIENT_SECRET") ?? "",
-          refresh_token: account.refresh_token ?? "",
-          grant_type: "refresh_token",
-        }),
-      });
-
-      if (!refreshResponse.ok) {
-        const errText = await refreshResponse.text();
-        console.error("Failed to refresh token:", errText);
-        return json({ error: "token_refresh_failed" }, 500);
-      }
-
-      const refreshJson = await refreshResponse.json();
-      accessToken = refreshJson.access_token;
-
-      const newExpiresAt =
-        typeof refreshJson.expires_in === "number"
-          ? Math.floor(Date.now() / 1000) + Number(refreshJson.expires_in)
-          : null;
-
-      const { error: updateError } = await supabase
+    if (userId) {
+      // Prefer per-user Google account tokens if available
+      const { data: account, error: accountError } = await supabase
         .from("accounts")
-        .update({ access_token: accessToken, expires_at: newExpiresAt })
-        .eq("user_id", user.id)
-        .eq("provider", "google");
-      if (updateError) {
-        console.error("Failed to persist refreshed token:", updateError);
+        .select("access_token, refresh_token, expires_at")
+        .eq("user_id", userId)
+        .eq("provider", "google")
+        .single();
+
+      if (!accountError && account) {
+        const expiresAt = account.expires_at as number | null;
+        if (account.access_token && expiresAt && Date.now() <= expiresAt * 1000) {
+          accessToken = account.access_token;
+        } else {
+          const refreshed = await getAccessTokenFromRefresh(account.refresh_token ?? "");
+          if (refreshed?.accessToken) {
+            accessToken = refreshed.accessToken;
+            // Persist refreshed token
+            await supabase
+              .from("accounts")
+              .update({ access_token: refreshed.accessToken, expires_at: refreshed.expiresAt })
+              .eq("user_id", userId)
+              .eq("provider", "google");
+          }
+        }
       }
     }
 
-    // Build Gmail search query
+    // Fallback: use server-managed refresh token
+    if (!accessToken) {
+      const serverRefresh = Deno.env.get("GOOGLE_REFRESH_TOKEN") ?? "";
+      const refreshed = await getAccessTokenFromRefresh(serverRefresh);
+      if (!refreshed?.accessToken) {
+        return json({ error: "no_gmail_access" }, 400);
+      }
+      accessToken = refreshed.accessToken;
+    }
+
+    // Build Gmail query
     let query = body.q || "";
     const after = toGmailDate(body.startDate);
     const before = toGmailDate(body.endDate);
-    const range: string[] = [];
-    if (after) range.push(`after:${after}`);
-    if (before) range.push(`before:${before}`);
-    if (range.length > 0) {
-      query = query ? `${query} ${range.join(" ")}` : range.join(" ");
-    }
+    const range = [after ? `after:${after}` : "", before ? `before:${before}` : ""].filter(Boolean).join(" ");
+    if (range) query = query ? `${query} ${range}` : range;
 
-    // Fetch messages list
+    // List messages
     const params = new URLSearchParams();
     params.set("maxResults", String(maxResults));
     if (query) params.set("q", query);
 
     const listUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages?${params.toString()}`;
-    const listRes = await fetch(listUrl, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-
+    const listRes = await fetch(listUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
     if (!listRes.ok) {
-      const errText = await listRes.text();
-      console.error("List messages failed:", errText);
+      console.error("List messages failed:", await listRes.text());
       return json({ error: "gmail_list_failed" }, 500);
     }
 
     const listJson = await listRes.json();
     const messages: { id: string }[] = listJson.messages || [];
     if (messages.length === 0) {
-      console.log("No messages found");
       return json({ parsed: [], inserted: 0 }, 200);
     }
 
@@ -177,19 +178,15 @@ serve(async (req) => {
 
     for (const msg of messages) {
       const detailUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=full`;
-      const detailRes = await fetch(detailUrl, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
+      const detailRes = await fetch(detailUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
       if (!detailRes.ok) {
         console.warn("Skip message (detail fetch failed):", msg.id);
         continue;
       }
-      const detailJson = await detailRes.json();
 
-      const headers: { name: string; value: string }[] =
-        detailJson?.payload?.headers || [];
-      const getHeader = (n: string) =>
-        headers.find((h) => h.name.toLowerCase() === n.toLowerCase())?.value;
+      const detailJson = await detailRes.json();
+      const headers: { name: string; value: string }[] = detailJson?.payload?.headers || [];
+      const getHeader = (n: string) => headers.find((h) => h.name.toLowerCase() === n.toLowerCase())?.value;
 
       const subject = getHeader("Subject") || "(no subject)";
       const from = getHeader("From") || "";
@@ -197,24 +194,18 @@ serve(async (req) => {
       const { name: clientName, email: clientEmail } = extractEmailParts(from);
       const loanType = detectLoanType(subject);
 
-      // Normalize to YYYY-MM-DD (UTC date)
       let dateSubmitted = new Date().toISOString().split("T")[0];
       if (dateHeader) {
         const dt = new Date(dateHeader);
-        if (!isNaN(dt.getTime())) {
-          dateSubmitted = dt.toISOString().split("T")[0];
-        }
+        if (!isNaN(dt.getTime())) dateSubmitted = dt.toISOString().split("T")[0];
       }
 
-      // Check duplicate by gmail_message_id
-      const { data: existing, error: existingError } = await supabase
+      // Prevent duplicates by gmail_message_id
+      const { data: existing } = await supabase
         .from("deals")
         .select("id")
         .eq("gmail_message_id", msg.id)
         .limit(1);
-      if (existingError) {
-        console.error("Duplicate check failed:", existingError);
-      }
       const already = Array.isArray(existing) && existing.length > 0;
 
       if (!already && !body.test) {
@@ -234,11 +225,8 @@ serve(async (req) => {
             snippet: detailJson?.snippet,
           }),
         });
-        if (insError) {
-          console.error("Insert deal failed:", insError);
-        } else {
-          inserted += 1;
-        }
+        if (!insError) inserted += 1;
+        else console.error("Insert deal failed:", insError);
       }
 
       parsed.push({
@@ -247,12 +235,10 @@ serve(async (req) => {
         legal_company_name: "N/A",
         client_name: clientName || "Unknown",
         client_email: clientEmail || undefined,
-        client_phone: undefined,
         loan_amount_sought: 0,
       });
     }
 
-    console.log(`✅ Sync complete. parsed=${parsed.length}, inserted=${inserted}`);
     return json({ parsed, inserted }, 200);
   } catch (e) {
     console.error("sync-gmail exception:", e);

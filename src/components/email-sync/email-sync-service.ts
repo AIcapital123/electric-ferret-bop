@@ -39,25 +39,20 @@ export class EmailSyncService {
       if (this.config.startDate) body.startDate = this.config.startDate
       if (this.config.endDate) body.endDate = this.config.endDate
 
-      // Get the current user's access token for Authorization
+      // Try to get the current user's access token for Authorization.
+      // If not available (no auth in app), proceed without Authorization header.
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
       const accessToken = sessionData?.session?.access_token
       if (sessionError || !accessToken) {
-        logError({
-          source: 'client',
-          code: 'no_session',
-          message: 'No authenticated session found for Gmail sync',
-          details: { sessionError }
-        })
-        throw new Error('Not authenticated')
+        console.warn('No authenticated session found; invoking sync-gmail without Authorization header.')
       }
 
-      const { data, error } = await supabase.functions.invoke('sync-gmail', {
-        body,
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      })
+      const invokeOptions: any = { body }
+      if (accessToken) {
+        invokeOptions.headers = { Authorization: `Bearer ${accessToken}` }
+      }
+
+      const { data, error } = await supabase.functions.invoke('sync-gmail', invokeOptions)
 
       if (error) {
         logError({

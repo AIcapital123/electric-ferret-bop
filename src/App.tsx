@@ -14,6 +14,7 @@ import RequireAuth from "@/components/auth/RequireAuth"
 import { LanguageProvider } from "@/components/language/language-provider"
 import AssistantWidget from "@/components/chat/AssistantWidget"
 import HelpPage from "./pages/Help"
+import TasksPage from "./pages/Tasks"
 
 const queryClient = new QueryClient()
 
@@ -38,6 +39,7 @@ const App = () => (
             <Route path="/analytics" element={<RequireAuth><WithAssistant><AnalyticsPage /></WithAssistant></RequireAuth>} />
             <Route path="/settings" element={<RequireAuth><WithAssistant><SettingsPage /></WithAssistant></RequireAuth>} />
             <Route path="/deals/:id" element={<RequireAuth><WithAssistant><DealDetailPage /></WithAssistant></RequireAuth>} />
+            <Route path="/tasks" element={<RequireAuth><WithAssistant><TasksPage /></WithAssistant></RequireAuth>} />
             <Route path="/help" element={<RequireAuth><WithAssistant><HelpPage /></WithAssistant></RequireAuth>} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />

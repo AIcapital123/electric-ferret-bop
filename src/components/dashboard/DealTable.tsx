@@ -81,7 +81,7 @@ export default function DealTable({
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {formatCurrency(Number(deal.loan_amount_sought) || 0)}
+                      {formatCurrency(Number(deal.loan_amount ?? deal.loan_amount_sought ?? 0))}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <select

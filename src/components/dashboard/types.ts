@@ -3,6 +3,8 @@ export type Deal = {
   legal_company_name: string;
   client_name?: string | null;
   loan_amount_sought: number;
+  loan_amount?: number | null;
+  revenue_annual?: number | null;
   loan_type?: string | null;
   client_email: string | null;
   client_phone: string | null;

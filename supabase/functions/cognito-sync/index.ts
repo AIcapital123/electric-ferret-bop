@@ -6,8 +6,31 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-days',
 };
 
+const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000001';
 const COGNITO_API_KEY = Deno.env.get('COGNITO_API_KEY') ?? '';
 const COGNITO_ORG_ID = Deno.env.get('COGNITO_ORG_ID') ?? '';
+
+const INCLUDED_FORMS = new Set<string>([
+  'Broker Referral Agreement',
+  'Business Loan Application',
+  'Business Term Loan',
+  'Commercial Real Estate Application',
+  'Equipment Leasing Application',
+  'Hard Money Application',
+  'Personal Loan Application',
+  'Rental Property Application',
+  'SBA Application',
+].map(s => s.toLowerCase()));
+
+const EXCLUDED_FORMS = new Set<string>([
+  'ENCUESTA',
+  'Funded Deal Report',
+  'Payroll Registration and Commissions',
+  'Questionnaire Development Loan',
+  'ACH Debit Authorization Form',
+  'Financiamiento de Bienes Raíces',
+  'LABOR SURVEY',
+].map(s => s.toLowerCase()));
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -21,6 +44,9 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
     if (!supabaseUrl || !supabaseKey) {
       return json({ success: false, error: 'Supabase env not set' }, 500);
+    }
+    if (!COGNITO_API_KEY || !COGNITO_ORG_ID) {
+      return json({ success: false, error: 'Missing Cognito env vars' }, 500);
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
@@ -36,15 +62,14 @@ serve(async (req) => {
     if (userError || !user) {
       return json({ success: false, error: 'Invalid user token' }, 401);
     }
-
     console.log('✅ User authenticated:', user.email);
 
-    // Webhook (POST)
+    // Webhook (POST) → SYSTEM_USER_ID ownership
     if (req.method === 'POST') {
       const submission = await req.json();
       console.log('📥 Webhook received:', submission);
 
-      const dealData = parseCognitoSubmissionEnhanced(submission, user.id);
+      const dealData = parseCognitoSubmissionEnhanced(submission, SYSTEM_USER_ID);
 
       if (dealData.cognito_entry_id) {
         const { data: existing } = await supabase
@@ -57,7 +82,11 @@ serve(async (req) => {
         }
       }
 
-      const { data, error } = await supabase.from('deals').insert(dealData).select('id').limit(1);
+      const { data, error } = await supabase
+        .from('deals')
+        .insert(dealData)
+        .select('id')
+        .limit(1);
       if (error) {
         console.error('❌ Database error:', error);
         return json({ success: false, error: 'Database error' }, 500);
@@ -67,7 +96,7 @@ serve(async (req) => {
       return json({ success: true, deal_id: data?.[0]?.id }, 200);
     }
 
-    // Manual sync (GET) with default 30 days; supports ?days and x-days header
+    // Manual sync (GET) → initiating user's ownership
     if (req.method === 'GET') {
       const url = new URL(req.url);
       const headerDays = req.headers.get('x-days') || undefined;
@@ -76,10 +105,7 @@ serve(async (req) => {
       startDate.setDate(startDate.getDate() - (Number.isFinite(daysBack) ? daysBack : 30));
       console.log(`📅 Syncing entries since ${startDate.toISOString()} (${daysBack} days)`);
 
-      if (!COGNITO_API_KEY || !COGNITO_ORG_ID) {
-        return json({ success: false, error: 'Missing Cognito env vars' }, 500);
-      }
-
+      // List forms
       const formsResponse = await fetch(
         `https://www.cognitoforms.com/api/organizations/${COGNITO_ORG_ID}/forms`,
         {
@@ -97,13 +123,20 @@ serve(async (req) => {
       }
 
       const forms = await formsResponse.json();
-      console.log(`📋 Found ${forms.length} forms`);
+      const usableForms = (forms || []).filter((f: any) => {
+        const name = String(f.Name || '').toLowerCase();
+        if (EXCLUDED_FORMS.has(name)) return false;
+        if (INCLUDED_FORMS.size > 0) return INCLUDED_FORMS.has(name);
+        return true;
+      });
+
+      console.log(`📋 Found ${forms.length} forms; using ${usableForms.length}`);
 
       let totalProcessed = 0;
       let totalSkipped = 0;
       let totalErrors = 0;
 
-      for (const form of forms) {
+      for (const form of usableForms) {
         console.log(`📝 Processing form: ${form.Name} (ID: ${form.Id})`);
 
         const entriesResponse = await fetch(
@@ -140,6 +173,7 @@ serve(async (req) => {
 
             const dealData = parseCognitoSubmissionEnhanced(entry, user.id, form);
             const { error } = await supabase.from('deals').insert(dealData);
+
             if (error) {
               console.error('❌ Insert error:', error);
               totalErrors++;
@@ -160,7 +194,7 @@ serve(async (req) => {
         processed: totalProcessed,
         skipped: totalSkipped,
         errors: totalErrors,
-        forms_checked: forms.length,
+        forms_checked: usableForms.length,
         date_range_days: daysBack,
         sync_date: new Date().toISOString(),
       }, 200);
@@ -180,41 +214,63 @@ function json(payload: unknown, status = 200): Response {
   });
 }
 
-// Enhanced parsing while preserving existing schema fields and status casing
+// Enhanced parsing while preserving existing schema fields; authoritative amount fields
 function parseCognitoSubmissionEnhanced(entry: any, userId: string, form?: any) {
   const fieldData = extractComprehensiveFieldData(entry);
-  const status = determineInitialStatus(fieldData);
+  const statusTitleCase = determineInitialStatusTitleCase(fieldData);
   const loanType = determineLoanType(fieldData, entry, form);
   const clientName = extractClientName(fieldData, entry);
-
   const createdIso = new Date(entry.DateCreated || entry.DateSubmitted || Date.now()).toISOString();
 
+  const revenueAnnual = fieldData.monthlyRevenue ? Math.round(fieldData.monthlyRevenue * 12) : null;
+
+  const cognitoRaw = {
+    form_name: form?.Name || 'CognitoForms',
+    cognito_form_id: form?.Id || entry.FormId,
+    cognito_entry_number: entry.Number,
+    source: 'cognitoforms_api',
+    parsed_fields: fieldData,
+    loan_type: loanType,
+    sync_date: new Date().toISOString(),
+    raw_entry: entry,
+  };
+
   return {
+    // Cognito refs
     cognito_entry_id: entry.Id ?? null,
     cognito_entry_number: entry.Number ?? null,
     cognito_form_id: form?.Id ?? entry.FormId ?? null,
 
+    // Primary fields
     legal_company_name: fieldData.companyName || `Company ${entry.Number || entry.Id}`,
     client_name: clientName || null,
     client_email: fieldData.email || null,
     client_phone: cleanPhoneNumber(fieldData.phone),
 
-    loan_type: loanType,
+    // Authoritative numeric fields
+    loan_amount: fieldData.loanAmount || 0,
+    revenue_annual: revenueAnnual,
+
+    // Compatibility fields (if your UI still relies on loan_amount_sought)
     loan_amount_sought: fieldData.loanAmount || 0,
 
-    status, // Title Case statuses to match existing data
+    // Classification
+    loan_type: loanType,
+    status: statusTitleCase, // Keep Title Case to match existing UI components
     source: 'CognitoForms',
 
+    // Extras / future-proof
+    use_of_funds: fieldData.purpose || null,
+    industry: fieldData.industry || null,
+    state: fieldData.state || null,
+    notes_internal: null,
+    assigned_to: null,
+
+    // Storage
     created_at: createdIso,
-    raw_email: JSON.stringify({
-      form_name: form?.Name || 'CognitoForms',
-      cognito_form_id: form?.Id || entry.FormId,
-      cognito_entry_number: entry.Number,
-      source: 'cognitoforms_api',
-      parsed_fields: fieldData,
-      loan_type: loanType,
-      sync_date: new Date().toISOString(),
-    }),
+    cognito_raw: cognitoRaw,
+    raw_email: JSON.stringify(cognitoRaw),
+    user_id: userId,
   };
 }
 
@@ -232,6 +288,10 @@ function extractComprehensiveFieldData(entry: any) {
     purpose?: string | null;
     firstName?: string | null;
     lastName?: string | null;
+    address?: string | null;
+    city?: string | null;
+    state?: string | null;
+    zip?: string | null;
   } = {
     companyName: null,
     email: null,
@@ -248,11 +308,15 @@ function extractComprehensiveFieldData(entry: any) {
     loanAmount: ['LoanAmount','FundingAmount','AmountRequested','RequestedAmount','AmountNeeded','LoanRequest','CapitalNeeded','FinancingAmount','Amount','FundingNeeded','LoanSize','CreditAmount','AdvanceAmount'],
     firstName: ['FirstName','First','FName','OwnerFirstName','ApplicantFirstName','ContactFirstName','PrimaryFirstName'],
     lastName: ['LastName','Last','LName','OwnerLastName','ApplicantLastName','ContactLastName','PrimaryLastName','Surname'],
-    purpose: ['Purpose','LoanPurpose','FundingPurpose'],
+    purpose: ['Purpose','LoanPurpose','FundingPurpose','UseOfFunds','Use_Of_Funds'],
     businessType: ['BusinessType','EntityType','BusinessStructure','LegalStructure','CompanyType','OrganizationType'],
     industry: ['Industry','BusinessIndustry','Sector','BusinessSector','IndustryType','BusinessCategory','NAICS','SIC'],
     monthlyRevenue: ['MonthlyRevenue','MonthlyIncome','Revenue','MonthlyGrossRevenue','AverageMonthlyRevenue','MonthlyGrossIncome','MonthlyDeposits'],
     timeInBusiness: ['TimeInBusiness','YearsInBusiness','BusinessAge','YearsOperating','MonthsInBusiness','BusinessDuration','OperatingYears'],
+    address: ['Address','AddressLine1','StreetAddress'],
+    city: ['City','Town'],
+    state: ['State','Province','Region'],
+    zip: ['Zip','PostalCode','ZipCode'],
   };
 
   for (const loc of searchLocations) {
@@ -283,7 +347,7 @@ function extractComprehensiveFieldData(entry: any) {
   return data;
 }
 
-function determineInitialStatus(fieldData: any): string {
+function determineInitialStatusTitleCase(fieldData: any): string {
   let score = 0;
   if (fieldData.companyName) score += 2;
   if (fieldData.email) score += 2;
@@ -302,11 +366,14 @@ function determineLoanType(fieldData: any, entry: any, form?: any): string {
   const map: Record<string, string[]> = {
     'Equipment Financing': ['equipment','machinery','vehicle','truck','construction'],
     'Working Capital': ['working capital','inventory','payroll','operating'],
-    'Real Estate': ['real estate','property','building','commercial property'],
-    'SBA Loan': ['sba','small business administration'],
+    'Commercial Real Estate (CRE)': ['real estate','property','building','commercial property'],
+    'SBA 7(a)': ['sba 7(a)'],
+    'SBA 504': ['sba 504'],
     'Merchant Cash Advance': ['mca','merchant','cash advance','daily sales'],
-    'Line of Credit': ['line of credit','loc','revolving credit'],
-    'Business Loan': ['business loan','term loan','general business'],
+    'Line of Credit (LOC)': ['line of credit','loc','revolving credit'],
+    'Term Loan': ['term loan','business loan','general business'],
+    'Personal Loan': ['personal loan'],
+    'Factoring': ['factoring','receivables'],
   };
 
   if (form?.Name) {
@@ -323,15 +390,16 @@ function determineLoanType(fieldData: any, entry: any, form?: any): string {
     entry.Purpose,
     entry.LoanPurpose,
     entry.FundingPurpose,
+    entry.UseOfFunds,
   ].filter(Boolean).join(' ').toLowerCase();
 
   for (const [loanType, keywords] of Object.entries(map)) {
     if (keywords.some(k => searchText.includes(k))) return loanType;
   }
 
-  if (fieldData.loanAmount > 500000) return 'Real Estate';
+  if (fieldData.loanAmount > 500000) return 'Commercial Real Estate (CRE)';
   if (fieldData.loanAmount < 100000) return 'Working Capital';
-  return 'Business Loan';
+  return 'Term Loan';
 }
 
 function extractClientName(fieldData: any, _entry: any): string | null {

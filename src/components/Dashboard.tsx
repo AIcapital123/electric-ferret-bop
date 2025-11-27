@@ -130,7 +130,7 @@ export default function Dashboard() {
         if (type !== loanType) return false;
       }
 
-      const amount = Number(deal.loan_amount_sought) || 0;
+      const amount = Number(deal.loan_amount ?? deal.loan_amount_sought) || 0;
       if (minAmount && amount < parseInt(minAmount)) return false;
       if (maxAmount && amount > parseInt(maxAmount)) return false;
 

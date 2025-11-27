@@ -9,7 +9,7 @@ const corsHeaders = {
 };
 
 const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000001';
-const COGNITO_API_TOKEN = Deno.env.get('COGNITO_API_TOKEN') ?? '';
+const COGNITO_API_TOKEN = (Deno.env.get('COGNITO_API_TOKEN') ?? Deno.env.get('COGNITO_API_KEY') ?? '');
 const COGNITO_ORG_ID = Deno.env.get('COGNITO_ORG_ID') ?? '6f375664-c614-432c-849e-884e88423227';
 
 const INCLUDED_FORMS = new Set<string>([

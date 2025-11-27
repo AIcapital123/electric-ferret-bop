@@ -17,29 +17,42 @@ export default function Login() {
       const { data, error } = await supabase.functions.invoke('create-test-account', {
         method: 'POST',
       })
-      if (error) {
-        toast.error(error.message || 'Failed to create test account')
-        return
-      }
-      const resp = data as {
-        success: boolean
-        session?: { access_token: string; refresh_token: string }
-        error?: string
-      }
-      if (!resp.success || !resp.session?.access_token || !resp.session?.refresh_token) {
-        toast.error(resp.error || 'Failed to create test account')
-        return
+      if (!error) {
+        const resp = data as {
+          success: boolean
+          session?: { access_token: string; refresh_token: string }
+          error?: string
+        }
+        if (resp?.success && resp.session?.access_token && resp.session?.refresh_token) {
+          const { error: setErr } = await supabase.auth.setSession({
+            access_token: resp.session.access_token,
+            refresh_token: resp.session.refresh_token,
+          })
+          if (!setErr) {
+            toast.success('Signed in with Test Account')
+            navigate(redirectTo, { replace: true })
+            return
+          }
+        }
       }
 
-      const { error: setErr } = await supabase.auth.setSession({
-        access_token: resp.session.access_token,
-        refresh_token: resp.session.refresh_token,
+      // Fallback: client-side sign up & sign in
+      const email = `demo-${Date.now()}@test.gokapital-crm.com`
+      const password = 'TestAccount123!'
+      const { error: signUpErr } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { data: { full_name: 'Demo User', source: 'test_data' } }
       })
-      if (setErr) {
-        toast.error(setErr.message || 'Failed to start session')
+      if (signUpErr) {
+        toast.error(signUpErr.message || 'Failed to sign up test user')
         return
       }
-
+      const { error: signInErr } = await supabase.auth.signInWithPassword({ email, password })
+      if (signInErr) {
+        toast.error(signInErr.message || 'Failed to sign in test user')
+        return
+      }
       toast.success('Signed in with Test Account')
       navigate(redirectTo, { replace: true })
     } catch (e: any) {

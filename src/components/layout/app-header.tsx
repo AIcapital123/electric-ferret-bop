@@ -6,10 +6,12 @@ import { toast } from 'sonner'
 import { useLanguage } from '@/components/language/language-provider'
 import { LanguageToggle } from '@/components/language/language-toggle'
 import { supabase } from '@/lib/supabase'
+import { useNavigate } from 'react-router-dom'
 
 export function AppHeader() {
   const [isSyncing, setIsSyncing] = useState(false)
   const { t } = useLanguage()
+  const navigate = useNavigate()
 
   const handleManualSync = async () => {
     setIsSyncing(true)
@@ -51,7 +53,7 @@ export function AppHeader() {
           <Cloud className={`h-4 w-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} />
           Sync CognitoForms
         </Button>
-        <Button variant="ghost" size="sm">
+        <Button variant="ghost" size="sm" onClick={() => navigate('/settings')}>
           <Settings className="h-4 w-4" />
         </Button>
       </div>

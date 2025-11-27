@@ -16,23 +16,28 @@ const corsHeaders = {
 // ------------------------------------
 // Types
 // ------------------------------------
-type ParsedEmail = {
-  date_submitted: string
-  loan_type: string
-  legal_company_name: string
+type DealRecord = {
   client_name: string
   client_email?: string
   client_phone?: string
-  loan_amount_sought: number
+  business_name?: string
+  business_type?: string
+  employer?: string
+  job_title?: string
   city?: string
   state?: string
   zip?: string
-  purpose?: string
-  employment_type?: string
-  employer_name?: string
-  job_title?: string
-  salary?: number
-  referral?: string
+  loan_type?: string
+  loan_amount_sought?: number
+  loan_purpose?: string
+  annual_income?: number
+  status: string
+  stage: string
+  source: string
+  gmail_message_id: string
+  raw_email: string
+  ai_derived: boolean
+  notes?: string
 }
 
 type GmailMessageHeader = { name: string; value: string }
@@ -55,7 +60,7 @@ type EmailMeta = {
 }
 
 // ------------------------------------
-// General utils
+// Date utilities (defined once)
 // ------------------------------------
 function clampDate(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate())
@@ -76,6 +81,9 @@ function formatGmailDate(d: Date): string {
   return `${yyyy}/${mm}/${dd}`
 }
 
+// ------------------------------------
+// General utils
+// ------------------------------------
 function headerValue(headers: GmailMessageHeader[], name: string): string | undefined {
   const h = headers.find((x) => x.name?.toLowerCase() === name.toLowerCase())
   return h?.value
@@ -128,74 +136,33 @@ function extractPlainTextFromPayload(payload: any): string {
 }
 
 // ------------------------------------
-// Parsing: Cognito Forms
+// Parsing: CognitoForms emails to Deal records
 // ------------------------------------
-function normalizeLoanType(input?: string): string {
-  const s = (input || "").toLowerCase();
+function normalizeCurrency(value?: string): number {
+  if (!value) return 0
+  const cleaned = value.replace(/[^\d.]/g, "")
+  const num = parseFloat(cleaned)
+  return isNaN(num) ? 0 : num
+}
 
+function normalizeLoanType(input?: string): string {
+  const s = (input || "").toLowerCase()
+  
   const patterns: { type: string; matchers: RegExp[] }[] = [
-    {
-      type: "Personal Loan",
-      matchers: [/personal\s+loan/i],
-    },
-    {
-      type: "Business Loan",
-      matchers: [/business\s+loan/i, /working\s+capital/i, /term\s+loan/i, /startup\s+loan/i],
-    },
-    {
-      type: "Equipment Leasing",
-      matchers: [/equipment\s+leasing/i, /equipment\s+financ(e|ing)/i, /equipment\s+loan/i],
-    },
-    {
-      type: "Hard Money",
-      matchers: [/hard\s+money/i, /bridge\s+loan/i, /fix\s*&?\s*flip/i, /\bbridge\b/i],
-    },
-    {
-      type: "Commercial Real Estate",
-      matchers: [/commercial\s+real\s+estate/i, /\bcre\b/i, /commercial\s+re/i, /commercial\s+mortgage/i],
-    },
-  ];
+    { type: "Personal Loan", matchers: [/personal\s+loan/i] },
+    { type: "Business Loan", matchers: [/business\s+loan/i, /working\s+capital/i, /term\s+loan/i, /startup\s+loan/i] },
+    { type: "Equipment Leasing", matchers: [/equipment\s+leasing/i, /equipment\s+financ(e|ing)/i, /equipment\s+loan/i] },
+    { type: "Hard Money", matchers: [/hard\s+money/i, /bridge\s+loan/i, /fix\s*&?\s*flip/i, /\bbridge\b/i] },
+    { type: "Commercial Real Estate", matchers: [/commercial\s+real\s+estate/i, /\bcre\b/i, /commercial\s+re/i, /commercial\s+mortgage/i] },
+  ]
 
   for (const p of patterns) {
-    if (p.matchers.some((rx) => rx.test(s))) return p.type;
+    if (p.matchers.some((rx) => rx.test(s))) return p.type
   }
-  return "Other";
+  return "Other"
 }
 
-function categorizeLoanType(subject: string, body: string): string {
-  const fromSubject = normalizeLoanType(subject);
-  if (fromSubject !== "Other") return fromSubject;
-
-  // Try body keys commonly present in Cognito mails
-  const bodyLower = (body || "").toLowerCase();
-  const candidates = [
-    "personal loan",
-    "business loan",
-    "equipment leasing",
-    "equipment financing",
-    "equipment loan",
-    "hard money",
-    "bridge loan",
-    "fix & flip",
-    "commercial real estate",
-    "cre",
-    "commercial mortgage",
-    "working capital",
-    "term loan"
-  ];
-  for (const c of candidates) {
-    if (bodyLower.includes(c)) {
-      return normalizeLoanType(c);
-    }
-  }
-  return "Other";
-}
-
-function parseCognitoFormsEmail(
-  emailBody: string,
-  subject: string,
-  recognizedTypes: Set<string>
-): ParsedEmail {
+function parseEmailToDeal(emailBody: string, subject: string, messageId: string): DealRecord {
   const fields: Record<string, string> = {}
   const lines = emailBody.split(/\r?\n/)
 
@@ -206,201 +173,134 @@ function parseCognitoFormsEmail(
     if (match) {
       const key = match[1].trim().toLowerCase().replace(/\s+/g, "_")
       const value = match[2].trim()
-      fields[key] = value
+      if (value) fields[key] = value
     }
   }
 
   const getFirst = (keys: string[]): string | undefined => {
     for (const k of keys) {
-      const v = fields[k]
-      if (v) return v
+      if (fields[k]) return fields[k]
     }
     return undefined
   }
 
-  const normalizeCurrency = (value?: string): number => {
-    if (!value) return 0
-    const cleaned = value.replace(/[^\d.]/g, "")
-    const num = parseFloat(cleaned)
-    return isNaN(num) ? 0 : num
-  }
+  // Field mappings with aliases
+  const clientNameKeys = ["client_name", "name", "applicant_name", "full_name", "first_name", "contact_name"]
+  const emailKeys = ["email", "client_email", "applicant_email", "email_address"]
+  const phoneKeys = ["phone", "client_phone", "phone_number", "mobile", "cell", "telephone"]
+  const businessNameKeys = ["legal_company_name", "company_name", "business_name", "legal_business_name", "company", "business"]
+  const employerKeys = ["employer", "employer_name"]
+  const jobTitleKeys = ["job_title", "position", "title", "occupation"]
+  const incomeKeys = ["income", "annual_income", "yearly_income", "salary", "monthly_income"]
+  const purposeKeys = ["purpose", "use_of_funds", "loan_purpose", "purpose_of_loan"]
+  const referralKeys = ["referral", "referred_by", "how_did_you_hear_about_us", "source", "referral_name"]
+  const cityKeys = ["city", "town"]
+  const stateKeys = ["state", "province"]
+  const zipKeys = ["zip", "postal_code", "zip_code"]
+  const amountKeys = ["loan_amount_sought", "loan_amount", "amount_requested", "requested_amount", "total_loan_amount"]
+  const businessTypeKeys = ["business_type", "industry", "type_of_business"]
 
-  const normalizeDate = (value?: string): string => {
-    const today = new Date().toISOString().split("T")[0]
-    if (!value) return today
+  // Extract values
+  const client_name = getFirst(clientNameKeys) || extractNameFromSubject(subject) || "Unknown"
+  const client_email = getFirst(emailKeys)
+  const client_phone = getFirst(phoneKeys)
+  const business_name = getFirst(businessNameKeys)
+  const business_type = getFirst(businessTypeKeys)
+  const employer = getFirst(employerKeys)
+  const job_title = getFirst(jobTitleKeys)
+  const city = getFirst(cityKeys)
+  const state = getFirst(stateKeys)
+  const zip = getFirst(zipKeys)
+  const loan_purpose = getFirst(purposeKeys)
+  const referral = getFirst(referralKeys)
 
-    const d1 = new Date(value)
-    if (!isNaN(d1.getTime())) return d1.toISOString().split("T")[0]
+  // Loan type from subject
+  const loan_type = normalizeLoanType(subject) !== "Other" ? normalizeLoanType(subject) : normalizeLoanType(emailBody)
 
-    const mdy = value.match(/^\s*(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\s*$/)
-    if (mdy) {
-      const mm = parseInt(mdy[1], 10) - 1
-      const dd = parseInt(mdy[2], 10)
-      const yyyy = parseInt(mdy[3].length === 2 ? `20${mdy[3]}` : mdy[3], 10)
-      const d = new Date(yyyy, mm, dd)
-      if (!isNaN(d.getTime())) return d.toISOString().split("T")[0]
-    }
-
-    const months = [
-      "january","february","march","april","may","june",
-      "july","august","september","october","november","december"
-    ]
-    const mon = months.findIndex(m => value.toLowerCase().includes(m))
-    if (mon >= 0) {
-      const dayMatch = value.match(/(\d{1,2})(?:st|nd|rd|th)?/)
-      const yearMatch = value.match(/(\d{4})/)
-      const dd = dayMatch ? parseInt(dayMatch[1], 10) : 1
-      const yyyy = yearMatch ? parseInt(yearMatch[1], 10) : new Date().getFullYear()
-      const d = new Date(yyyy, mon, dd)
-      if (!isNaN(d.getTime())) return d.toISOString().split("T")[0]
-    }
-
-    return today
-  }
-
-  const legalCompanyKeys = ["legal_company_name","company_name","business_name","legal_business_name","company","business"]
-  const clientNameKeys = ["client_name","name","full_name","applicant_name","contact_name"]
-  const emailKeys = ["client_email","email","email_address"]
-  const phoneKeys = ["client_phone","phone","telephone","mobile","phone_number"]
-  const amountKeys = ["loan_amount_sought","loan_amount","amount_requested","requested_amount","total_loan_amount","loan_amount"]
-  const cityKeys = ["city","town"]
-  const stateKeys = ["state","province"]
-  const zipKeys = ["zip","postal_code","zip_code"]
-  const purposeKeys = ["purpose","loan_purpose","purpose_of_loan","use_of_funds"]
-  const employmentTypeKeys = ["employment_type","employment_status"]
-  const employerKeys = ["employer_name","employer","company","business"]
-  const jobTitleKeys = ["job_title","position","title"]
-  const salaryKeys = ["salary","income","annual_income","monthly_income"]
-  const referralKeys = ["referral","referral_name","source","how_did_you_hear_about_us"]
-  const dateKeys = ["date_submitted","submitted_date","submission_date","date"]
-
-  // Loan type from subject restricted to recognized set
-  const matchedType = matchRecognizedLoanType(subject, recognizedTypes)
-  const loan_type = matchedType ?? "Other"
-
+  // Amount
   const amountStr = getFirst(amountKeys)
   const loan_amount_sought = normalizeCurrency(amountStr)
-  const dateStr = getFirst(dateKeys) || new Date().toISOString()
-  const date_submitted = normalizeDate(dateStr)
 
-  const subjectNameMatch = subject.match(/application\s*[-:]\s*(.+)$/i)
-  const subjectName = subjectNameMatch ? subjectNameMatch[1].trim() : undefined
-  const salaryVal = normalizeCurrency(getFirst(salaryKeys))
+  // Income - handle monthly vs annual
+  const incomeStr = getFirst(incomeKeys)
+  let annual_income = 0
+  if (incomeStr) {
+    const rawIncome = normalizeCurrency(incomeStr)
+    // Check if it's monthly income
+    const incomeKey = incomeKeys.find(k => fields[k])
+    if (incomeKey && (incomeKey.includes("monthly") || incomeStr.toLowerCase().includes("month"))) {
+      annual_income = rawIncome * 12
+    } else {
+      annual_income = rawIncome
+    }
+  }
+
+  // Build source with referral info
+  let source = "CognitoForms"
+  if (referral) {
+    source = `CognitoForms (Referral: ${referral})`
+  }
+
+  // Collect extra fields for notes
+  const coreFields = new Set([
+    ...clientNameKeys, ...emailKeys, ...phoneKeys, ...businessNameKeys,
+    ...employerKeys, ...jobTitleKeys, ...incomeKeys, ...purposeKeys,
+    ...referralKeys, ...cityKeys, ...stateKeys, ...zipKeys, ...amountKeys,
+    ...businessTypeKeys, "date_submitted", "submitted_date", "submission_date", "date"
+  ])
+  
+  const extraFields: string[] = []
+  for (const [key, value] of Object.entries(fields)) {
+    if (!coreFields.has(key) && value) {
+      extraFields.push(`${key.replace(/_/g, " ")}: ${value}`)
+    }
+  }
+
+  let notes = ""
+  if (extraFields.length > 0) {
+    notes = `[Auto-imported from CognitoForms]\n\nAdditional Info:\n${extraFields.join("\n")}`
+  }
 
   return {
-    date_submitted,
+    client_name,
+    client_email,
+    client_phone,
+    business_name,
+    business_type,
+    employer,
+    job_title,
+    city,
+    state,
+    zip,
     loan_type,
-    legal_company_name: getFirst(legalCompanyKeys) || "N/A",
-    client_name: getFirst(clientNameKeys) || subjectName || "Unknown",
-    client_email: getFirst(emailKeys),
-    client_phone: getFirst(phoneKeys),
     loan_amount_sought,
-    city: getFirst(cityKeys),
-    state: getFirst(stateKeys),
-    zip: getFirst(zipKeys),
-    purpose: getFirst(purposeKeys),
-    employment_type: getFirst(employmentTypeKeys),
-    employer_name: getFirst(employerKeys),
-    job_title: getFirst(jobTitleKeys),
-    salary: salaryVal,
-    referral: getFirst(referralKeys),
+    loan_purpose,
+    annual_income: annual_income || undefined,
+    status: "New",
+    stage: "Lead",
+    source,
+    gmail_message_id: messageId,
+    raw_email: emailBody.substring(0, 10000), // Limit size
+    ai_derived: false,
+    notes: notes || undefined,
   }
 }
 
-// Sample recognized loan types from the last 4 months of Cognito emails
-async function sampleRecognizedLoanTypes(accessToken: string): Promise<Set<string>> {
-  const recognized = new Set<string>()
-  const baseQuery = "from:notifications@cognitoforms.com to:deals@gokapital.com"
-
-  const today = clampDate(new Date())
-  const fourMonthsAgo = clampDate(new Date(today.getFullYear(), today.getMonth() - 4, today.getDate()))
-  const tomorrow = clampDate(new Date(today))
-  tomorrow.setDate(tomorrow.getDate() + 1)
-
-  const q = `${baseQuery} after:${formatGmailDate(fourMonthsAgo)} before:${formatGmailDate(tomorrow)}`
-  const ids = await searchMessageIds(accessToken, q, 200)
-
-  for (const id of ids) {
-    const gm = await getMessage(accessToken, id)
-    const headers = (gm.payload?.headers || []) as GmailMessageHeader[]
-    const subject = headerValue(headers, "Subject") || ""
-
-    // Extract potential loan type tokens from subject by looking for capitalized phrases
-    // We only add exact phrases we see in real subjects
-    const candidates = subject
-      .split(/[-–—|·•:]/) // split common separators
-      .map(s => s.trim())
-      .filter(s => s.length > 0)
-
-    for (const cand of candidates) {
-      // Keep medium-length phrases that likely represent a type (heuristic)
-      if (cand.length >= 3 && cand.length <= 40) {
-        // Avoid generic terms; store as-is
-        recognized.add(cand)
-      }
-    }
-
-    // Also try to extract "Loan Type" from the body if present
-    const raw = extractPlainTextFromPayload(gm.payload)
-    const lines = raw.split(/\r?\n/)
-    for (const line of lines) {
-      const m = line.match(/^\s*Loan\s*Type\s*[:–—-]\s*(.+)\s*$/i)
-      if (m && m[1]) {
-        const val = m[1].trim()
-        if (val.length >= 3 && val.length <= 40) {
-          recognized.add(val)
-        }
-      }
-    }
-  }
-
-  // Normalize set by trimming and collapsing to case-insensitive uniqueness
-  const normalized = new Set<string>()
-  for (const t of recognized) {
-    normalized.add(t.trim())
-  }
-  return normalized
+function extractNameFromSubject(subject: string): string | undefined {
+  const match = subject.match(/application\s*[-:–—]\s*(.+)$/i)
+  if (match) return match[1].trim()
+  return undefined
 }
 
-// Decide if subject contains one of the recognized loan types (case-insensitive exact phrase)
-function matchRecognizedLoanType(subject: string, recognized: Set<string>): string | null {
-  const subjLower = subject.toLowerCase()
-  for (const type of recognized) {
-    const typeLower = type.toLowerCase()
-    if (typeLower && subjLower.includes(typeLower)) {
-      return type
-    }
-  }
-  return null
-}
-
-function isCognitoApplicationEmail(from: string, subject: string): boolean {
-  const isCognito =
-    from.includes("cognitoforms.com") || from.includes("notifications@cognitoforms.com")
-  return isCognito
-}
-
-// Build a date string for Gmail query "YYYY/MM/DD"
-function formatGmailDate(d: Date): string {
-  const yyyy = d.getFullYear()
-  const mm = String(d.getMonth() + 1).padStart(2, "0")
-  const dd = String(d.getDate()).padStart(2, "0")
-  return `${yyyy}/${mm}/${dd}`
-}
-
-// Helper to compute clamped date (strip time)
-function clampDate(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate())
+function isCognitoApplicationEmail(from: string, _subject: string): boolean {
+  return from.includes("cognitoforms.com") || from.includes("notifications@cognitoforms.com")
 }
 
 // ------------------------------------
 // Gmail query helpers
 // ------------------------------------
 function buildGmailQuery(body: SyncRequestBody): string {
-  // Base query: Cognito notifications addressed to deals@gokapital.com
-  const baseQuery =
-    body?.q ??
-    "from:notifications@cognitoforms.com to:deals@gokapital.com"
+  const baseQuery = body?.q ?? "from:notifications@cognitoforms.com to:deals@gokapital.com"
 
   const today = clampDate(new Date())
   const twoYearsAgo = clampDate(new Date(today.getFullYear() - 2, today.getMonth(), today.getDate()))
@@ -422,7 +322,7 @@ function buildGmailQuery(body: SyncRequestBody): string {
     return `${baseQuery} after:${formatGmailDate(finalStart)} before:${formatGmailDate(endPlusOne)}`
   }
 
-  // Default: within the last 30 days => after:(30 days ago) before:(tomorrow)
+  // Default: last 30 days
   const thirtyDaysAgo = new Date(today)
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
   const tomorrow = new Date(today)
@@ -465,8 +365,7 @@ async function getAccessToken(): Promise<string> {
 function createSupabaseClientOrNull() {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")
   const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")
-  const hasSupabase = !!(supabaseUrl && supabaseKey)
-  return hasSupabase ? createClient(supabaseUrl!, supabaseKey!) : null
+  return supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null
 }
 
 // ------------------------------------
@@ -509,255 +408,91 @@ function extractEmailMetaFromGmailMessage(gm: any): EmailMeta {
   const sent_at = new Date(date).toISOString()
   const raw_body = extractPlainTextFromPayload(gm.payload)
 
-  return {
-    message_id: gm.id,
-    subject,
-    from,
-    to,
-    sent_at,
-    raw_body,
-  }
+  return { message_id: gm.id, subject, from, to, sent_at, raw_body }
 }
 
 // ------------------------------------
-// Database helpers
+// Database helpers with deduplication
 // ------------------------------------
-async function emailExists(supabase: any, messageId: string): Promise<boolean> {
-  const { data: existing } = await supabase
-    .from("emails")
-    .select("id")
-    .eq("message_id", messageId)
-    .maybeSingle()
-  return !!existing
-}
-
-async function insertDealAndEmail(
-  supabase: any,
-  p: ParsedEmail,
-  meta: EmailMeta
-): Promise<boolean> {
-  const { data: dealInsert, error: dealError } = await supabase
+async function findExistingDeal(supabase: any, deal: DealRecord): Promise<any | null> {
+  // Check by gmail_message_id first
+  const { data: byMessageId } = await supabase
     .from("deals")
-    .insert({
-      date_submitted: p.date_submitted,
-      loan_type: p.loan_type,
-      legal_company_name: p.legal_company_name,
-      client_name: p.client_name,
-      client_email: p.client_email,
-      client_phone: p.client_phone,
-      loan_amount_sought: p.loan_amount_sought,
-      city: p.city,
-      state: p.state,
-      zip: p.zip,
-      purpose: p.purpose,
-      employment_type: p.employment_type,
-      employer_name: p.employer_name,
-      job_title: p.job_title,
-      salary: p.salary,
-      referral: p.referral,
-      source: "CognitoForms",
-      status: "New",
-    })
-    .select("id")
-    .single()
+    .select("*")
+    .eq("gmail_message_id", deal.gmail_message_id)
+    .maybeSingle()
+  
+  if (byMessageId) return byMessageId
 
-  if (dealError) {
-    console.error("Deal insert error:", dealError)
+  // Check by email
+  if (deal.client_email) {
+    const { data: byEmail } = await supabase
+      .from("deals")
+      .select("*")
+      .eq("client_email", deal.client_email)
+      .maybeSingle()
+    if (byEmail) return byEmail
+  }
+
+  // Check by phone
+  if (deal.client_phone) {
+    const { data: byPhone } = await supabase
+      .from("deals")
+      .select("*")
+      .eq("client_phone", deal.client_phone)
+      .maybeSingle()
+    if (byPhone) return byPhone
+  }
+
+  return null
+}
+
+async function mergeDeal(supabase: any, existing: any, newDeal: DealRecord): Promise<boolean> {
+  const updates: Record<string, any> = {}
+
+  // Only fill empty fields
+  const fillableFields = [
+    "client_name", "client_email", "client_phone", "business_name", "business_type",
+    "employer", "job_title", "city", "state", "zip", "loan_type", "loan_amount_sought",
+    "loan_purpose", "annual_income"
+  ]
+
+  for (const field of fillableFields) {
+    if (!existing[field] && (newDeal as any)[field]) {
+      updates[field] = (newDeal as any)[field]
+    }
+  }
+
+  // Append to notes
+  if (newDeal.notes) {
+    const existingNotes = existing.notes || ""
+    const timestamp = new Date().toISOString()
+    updates.notes = existingNotes + `\n\n--- Merged ${timestamp} ---\n${newDeal.notes}`
+  }
+
+  // Append to raw_email history
+  if (newDeal.raw_email) {
+    const existingRaw = existing.raw_email || ""
+    const timestamp = new Date().toISOString()
+    updates.raw_email = existingRaw + `\n\n--- Email ${timestamp} ---\n${newDeal.raw_email}`
+  }
+
+  if (Object.keys(updates).length === 0) return false
+
+  const { error } = await supabase
+    .from("deals")
+    .update(updates)
+    .eq("id", existing.id)
+
+  if (error) {
+    console.error("Merge deal error:", error)
     return false
   }
-
-  await supabase.from("emails").insert({
-    deal_id: dealInsert?.id,
-    message_id: meta.message_id,
-    subject: meta.subject,
-    from_address: meta.from,
-    to_addresses: meta.to,
-    sent_at: meta.sent_at,
-    raw_body: meta.raw_body,
-  })
-
   return true
 }
 
-// ------------------------------------
-// Processing helpers
-// ------------------------------------
-async function processGmailMessage(
-  supabase: any,
-  accessToken: string,
-  messageId: string,
-  recognizedTypes: Set<string>,
-  parsedCollector: ParsedEmail[]
-): Promise<number> {
-  const gm = await getMessage(accessToken, messageId)
-  const meta = extractEmailMetaFromGmailMessage(gm)
-
-  if (!isCognitoApplicationEmail(meta.from, meta.subject)) {
-    return 0
-  }
-
-  const parsed = parseCognitoFormsEmail(meta.raw_body, meta.subject, recognizedTypes)
-  parsedCollector.push(parsed)
-
-  const exists = await emailExists(supabase, meta.message_id)
-  if (exists) return 0
-
-  const ok = await insertDealAndEmail(supabase, parsed, meta)
-  return ok ? 1 : 0
-}
-
-// Build recognized types from test inbox (fallback)
-function sampleRecognizedLoanTypesTest(): Set<string> {
-  const set = new Set<string>()
-  set.add("Personal Loan")
-  set.add("Business Loan")
-  set.add("Equipment Leasing")
-  set.add("Hard Money")
-  set.add("Commercial Real Estate")
-  return set
-}
-
-// Live query processing uses recognized types sampled from last 4 months
-async function processLiveQuery(
-  supabase: any,
-  body: SyncRequestBody
-): Promise<{ parsed: ParsedEmail[]; inserted: number } | { error: string }> {
-  if (!supabase) return { error: "Supabase env not set" }
-
-  const parsed: ParsedEmail[] = []
-  let inserted = 0
-
-  const maxResults = Number(body?.maxResults ?? 10)
-  const query = buildGmailQuery(body)
-
-  const accessToken = await getAccessToken()
-
-  // Sample loan types over last 4 months
-  let recognizedTypes = new Set<string>()
-  try {
-    recognizedTypes = await sampleRecognizedLoanTypes(accessToken)
-  } catch (e) {
-    console.warn("Sampling loan types failed; proceeding with empty set:", e)
-    recognizedTypes = new Set<string>()
-  }
-
-  const ids = await searchMessageIds(accessToken, query, maxResults)
-
-  for (const id of ids) {
-    inserted += await processGmailMessage(supabase, accessToken, id, recognizedTypes, parsed)
-  }
-
-  return { parsed, inserted }
-}
-
-// Test mode uses a small built-in set of recognized types from test messages
-async function processTestInbox(supabase: any): Promise<{ parsed: ParsedEmail[]; inserted: number }> {
-  const parsed: ParsedEmail[] = []
-  let inserted = 0
-
-  const recognizedTypes = sampleRecognizedLoanTypesTest()
-
-  const inbox = [
-    {
-      from: "notifications@cognitoforms.com",
-      subject: "Personal Loan Application - John Doe",
-      body: `Legal Company Name: Doe Enterprises LLC
-Client Name: John Doe
-Email: john.doe@email.com
-Phone: (555) 123-4567
-Loan Amount Sought: $50,000
-City: Miami
-State: FL
-Zip: 33101
-Purpose: Business expansion
-Employment Type: Self-employed
-Employer Name: Doe Enterprises LLC
-Job Title: Owner
-Salary: $120,000
-Referral: Google Search
-Date Submitted: 2024-01-15`,
-      message_id: "test-message-id-123",
-      to: "deals@gokapital.com",
-      sent_at: new Date().toISOString(),
-    },
-  ]
-
-  for (const msg of inbox) {
-    const p = parseCognitoFormsEmail(msg.body, msg.subject, recognizedTypes)
-    parsed.push(p)
-
-    if (supabase) {
-      const exists = await emailExists(supabase, msg.message_id)
-      if (!exists) {
-        const ok = await insertDealAndEmail(supabase, p, {
-          message_id: msg.message_id,
-          subject: msg.subject,
-          from: msg.from,
-          to: msg.to,
-          sent_at: msg.sent_at,
-          raw_body: msg.body,
-        })
-        if (ok) inserted += 1
-      }
-    } else {
-      inserted += 1
-    }
-  }
-
-  return { parsed, inserted }
-}
-
-// ------------------------------------
-// HTTP handler
-// ------------------------------------
-async function handleRequest(req: Request): Promise<Response> {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: corsHeaders })
-  }
-
-  try {
-    const body: SyncRequestBody = await req.json().catch(() => ({}))
-    const isTest = !!body?.test
-
-    // Enforce Authorization only for live mode; allow test mode without it
-    const authHeader = req.headers.get("Authorization")
-    if (!authHeader && !isTest) {
-      return json({ error: "Unauthorized" }, 401)
-    }
-
-    const supabase = createSupabaseClientOrNull()
-
-    if (isTest) {
-      const result = await processTestInbox(supabase)
-      return json(result, 200)
-    }
-
-    if (!supabase) {
-      return json({ error: "Supabase env not set" }, 500)
-    }
-
-    const result = await processLiveQuery(supabase, body)
-    if ("error" in result) {
-      return json(result, 500)
-    }
-
-    return json(result, 200)
-  } catch (e) {
-    console.error("gmail-sync error:", e)
-    const msg = typeof e?.message === "string" ? e.message : "Internal error"
-    const status =
-      msg.includes("Missing Google OAuth secrets") ? 400 :
-      msg.includes("invalid_grant") || msg.includes("invalid_client") ? 401 :
-      500
-    return json({ error: msg }, status)
-  }
-}
-
-function json(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  })
-}
-
-serve(handleRequest)
+async function insertDeal(supabase: any, deal: DealRecord): Promise<boolean> {
+  const { error } = await supabase.from("deals").insert(deal)
+  
+  if (error) {
+    console.error("Insert deal error:", error)

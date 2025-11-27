@@ -39,7 +39,7 @@ export class EmailSyncService {
       if (this.config.startDate) body.startDate = this.config.startDate
       if (this.config.endDate) body.endDate = this.config.endDate
 
-      const { data, error } = await supabase.functions.invoke('gmail-sync', {
+      const { data, error } = await supabase.functions.invoke('sync-gmail', {
         body,
         headers: {
           Authorization: `Bearer ${SUPABASE_ANON_KEY}`,

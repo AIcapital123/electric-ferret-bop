@@ -1,27 +1,30 @@
 export interface Deal {
   id: string
-  date_submitted: string
+  created_at: string
+  updated_at: string
   loan_type: string
   legal_company_name: string
   client_name: string
-  client_email?: string
-  client_phone?: string
-  loan_amount_sought: number
+  email?: string
+  phone?: string
+  loan_amount: number
   city?: string
   state?: string
   zip?: string
-  purpose?: string
+  use_of_funds?: string
   employment_type?: string
   employer_name?: string
   job_title?: string
-  salary?: number
+  revenue_annual?: number
   referral?: string
   source: string
   status: string
-  created_at: string
-  updated_at: string
   ai_summary?: string
   next_best_action?: string
+  cognito_entry_id?: string
+  gmail_message_id?: string
+  notes_internal?: string
+  assigned_to?: string
 }
 
 export interface Note {
@@ -49,6 +52,7 @@ export interface DealFilters {
   minAmount?: number
   maxAmount?: number
   status?: string
+  search?: string
 }
 
 export interface ParsedEmail {

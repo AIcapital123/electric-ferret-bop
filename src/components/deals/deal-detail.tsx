@@ -65,9 +65,9 @@ export function DealDetail() {
   const getStatusBadge = (status: string) => {
     const variants = {
       new: 'default' as const,
-      in_progress: 'secondary' as const,
+      in_review: 'secondary' as const,
       funded: 'outline' as const,
-      lost: 'destructive' as const
+      declined: 'destructive' as const
     }
     return <Badge variant={variants[status as keyof typeof variants] || 'default'}>
       {status.replace('_', ' ').toUpperCase()}
@@ -76,7 +76,6 @@ export function DealDetail() {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
-      {/* Breadcrumb */}
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -93,7 +92,6 @@ export function DealDetail() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      {/* Header */}
       <div className="flex justify-between items-start">
         <div className="space-y-1">
           <div className="flex items-center gap-3">
@@ -108,22 +106,18 @@ export function DealDetail() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="New">New</SelectItem>
-              <SelectItem value="Under Review">Under Review</SelectItem>
-              <SelectItem value="Missing Information">Missing Information</SelectItem>
-              <SelectItem value="Approved">Approved</SelectItem>
-              <SelectItem value="Declined">Declined</SelectItem>
-              <SelectItem value="Funded">Funded</SelectItem>
-              <SelectItem value="Not Interested">Not Interested</SelectItem>
-              <SelectItem value="On Hold">On Hold</SelectItem>
-              <SelectItem value="Withdrawn">Withdrawn</SelectItem>
-              <SelectItem value="Re-submission">Re-submission</SelectItem>
+              <SelectItem value="new">New</SelectItem>
+              <SelectItem value="in_review">In Review</SelectItem>
+              <SelectItem value="missing_docs">Missing Docs</SelectItem>
+              <SelectItem value="submitted">Submitted</SelectItem>
+              <SelectItem value="approved">Approved</SelectItem>
+              <SelectItem value="declined">Declined</SelectItem>
+              <SelectItem value="funded">Funded</SelectItem>
             </SelectContent>
           </Select>
         </div>
       </div>
 
-      {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -141,7 +135,7 @@ export function DealDetail() {
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">${deal.loan_amount_sought.toLocaleString()}</div>
+            <div className="text-2xl font-bold">${Number(deal.loan_amount || 0).toLocaleString()}</div>
           </CardContent>
         </Card>
 
@@ -152,7 +146,7 @@ export function DealDetail() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {formatInTimeZone(new Date(deal.date_submitted), 'America/New_York', 'MMM dd, yyyy')}
+              {formatInTimeZone(new Date(deal.created_at), 'America/New_York', 'MMM dd, yyyy')}
             </div>
           </CardContent>
         </Card>
@@ -169,7 +163,6 @@ export function DealDetail() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Contact Information */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -178,19 +171,19 @@ export function DealDetail() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {deal.client_email && (
+            {deal.email && (
               <div className="flex items-center gap-2">
                 <Mail className="h-4 w-4 text-muted-foreground" />
-                <a href={`mailto:${deal.client_email}`} className="text-blue-600 hover:underline">
-                  {deal.client_email}
+                <a href={`mailto:${deal.email}`} className="text-blue-600 hover:underline">
+                  {deal.email}
                 </a>
               </div>
             )}
-            {deal.client_phone && (
+            {deal.phone && (
               <div className="flex items-center gap-2">
                 <Phone className="h-4 w-4 text-muted-foreground" />
-                <a href={`tel:${deal.client_phone}`} className="text-blue-600 hover:underline">
-                  {deal.client_phone}
+                <a href={`tel:${deal.phone}`} className="text-blue-600 hover:underline">
+                  {deal.phone}
                 </a>
               </div>
             )}
@@ -203,10 +196,10 @@ export function DealDetail() {
                 </span>
               </div>
             )}
-            {deal.purpose && (
+            {deal.use_of_funds && (
               <div>
                 <span className="font-medium">{t('loan_purpose')}: </span>
-                <span>{deal.purpose}</span>
+                <span>{deal.use_of_funds}</span>
               </div>
             )}
             {deal.referral && (
@@ -218,7 +211,6 @@ export function DealDetail() {
           </CardContent>
         </Card>
 
-        {/* Employment Information */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -245,17 +237,16 @@ export function DealDetail() {
                 <span>{deal.job_title}</span>
               </div>
             )}
-            {deal.salary && (
+            {deal.revenue_annual && (
               <div>
                 <span className="font-medium">{t('annual_salary')}: </span>
-                <span>${deal.salary.toLocaleString()}</span>
+                <span>${Number(deal.revenue_annual || 0).toLocaleString()}</span>
               </div>
             )}
           </CardContent>
         </Card>
       </div>
 
-      {/* AI Summary */}
       {(deal.ai_summary || deal.next_best_action) && (
         <Card>
           <CardHeader>
@@ -281,7 +272,6 @@ export function DealDetail() {
         </Card>
       )}
 
-      {/* Notes */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -320,7 +310,6 @@ export function DealDetail() {
         </CardContent>
       </Card>
 
-      {/* Original Emails */}
       {emails && emails.length > 0 && (
         <Card>
           <CardHeader>

@@ -1,5 +1,4 @@
 // @ts-nocheck
-
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0"
 
@@ -16,6 +15,7 @@ type DealFilters = {
   minAmount?: number
   maxAmount?: number
   status?: string
+  search?: string
 }
 
 function json(payload: unknown, status = 200): Response {
@@ -40,15 +40,16 @@ serve(async (req) => {
 
     const body = await req.json().catch(() => ({}))
     const filters: DealFilters = body?.filters || {}
-    const page: number = Number(body?.page ?? 1)
-    const pageSize: number = Number(body?.pageSize ?? 25)
+    const page: number = Math.max(1, Number(body?.page ?? 1))
+    const pageSizeRaw: number = Number(body?.pageSize ?? 25)
+    const pageSize: number = Math.min(100, Math.max(1, pageSizeRaw))
     const from = (page - 1) * pageSize
     const to = from + pageSize - 1
 
     let q = supabase
       .from("deals")
       .select("*", { count: "exact" })
-      .order("date_submitted", { ascending: false })
+      .order("created_at", { ascending: false })
 
     if (filters.loanType) {
       q = q.eq("loan_type", filters.loanType)
@@ -57,16 +58,28 @@ serve(async (req) => {
       q = q.eq("status", filters.status)
     }
     if (filters.minAmount !== undefined) {
-      q = q.gte("loan_amount_sought", filters.minAmount)
+      q = q.gte("loan_amount", filters.minAmount)
     }
     if (filters.maxAmount !== undefined) {
-      q = q.lte("loan_amount_sought", filters.maxAmount)
+      q = q.lte("loan_amount", filters.maxAmount)
     }
     if (filters.dateRange?.start) {
-      q = q.gte("date_submitted", filters.dateRange.start)
+      q = q.gte("created_at", filters.dateRange.start)
     }
     if (filters.dateRange?.end) {
-      q = q.lte("date_submitted", filters.dateRange.end)
+      q = q.lte("created_at", filters.dateRange.end)
+    }
+    if (filters.search && String(filters.search).trim() !== "") {
+      const s = String(filters.search).trim()
+      q = q.or([
+        `client_name.ilike.%${s}%`,
+        `legal_company_name.ilike.%${s}%`,
+        `loan_type.ilike.%${s}%`,
+        `status.ilike.%${s}%`,
+        `email.ilike.%${s}%`,
+        `phone.ilike.%${s}%`,
+        `notes_internal.ilike.%${s}%`,
+      ].join(","))
     }
 
     q = q.range(from, to)

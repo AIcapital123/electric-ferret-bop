@@ -5,15 +5,13 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Filter, RefreshCw, Cloud } from 'lucide-react'
+import { Filter, RefreshCw } from 'lucide-react'
 import { format, subDays, subMonths } from 'date-fns'
 import { cn } from '@/lib/utils'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useLanguage } from '@/components/language/language-provider'
-import { emailSyncService } from '@/components/email-sync/email-sync-service'
 import {
   Pagination,
   PaginationContent,
@@ -28,20 +26,15 @@ import StatusTag from '@/components/deals/status-tag'
 import { formatInTimeZone } from 'date-fns-tz'
 
 export function DealsDashboard() {
-  // Pending filters user is editing
   const [filters, setFilters] = useState<DealFilters>({})
-  // Applied filters used for fetching (only updated by Refresh)
   const [appliedFilters, setAppliedFilters] = useState<DealFilters>({})
   const [page, setPage] = useState<number>(1)
   const [appliedPage, setAppliedPage] = useState<number>(1)
   const [newDealsCount, setNewDealsCount] = useState<number>(0)
 
-  // Store per-deal reminder timer IDs so we can cancel them on Refresh
   const reminderTimersRef = useRef<Record<string, number>>({})
-
   const queryClient = useQueryClient()
 
-  // Default to last 1 month on initial load
   useEffect(() => {
     const today = new Date()
     const start = subMonths(today, 1)
@@ -64,7 +57,6 @@ export function DealsDashboard() {
   const { t } = useLanguage()
   const navigate = useNavigate()
 
-  // Do not auto-refetch when filters change; user must click Refresh
   useEffect(() => {
     setPage(1)
   }, [filters.loanType, filters.minAmount, filters.maxAmount, filters.status, filters.dateRange?.start, filters.dateRange?.end])
@@ -83,16 +75,9 @@ export function DealsDashboard() {
   }
 
   const applyRefresh = () => {
-    // Suppress any pending 30s reminders when user refreshes
     clearReminders()
     setAppliedFilters(filters)
     setAppliedPage(page)
-  }
-
-  const syncEmailsNow = async () => {
-    await emailSyncService.syncEmails()
-    toast.success('Email sync started')
-    // Do not refetch automatically; new deals will stream via Realtime
   }
 
   const clearReminders = () => {
@@ -109,7 +94,6 @@ export function DealsDashboard() {
     return <StatusTag status={status} />
   }
 
-  // Date range presets
   type PresetKey =
     | '1w' | '2w'
     | '1m' | '2m' | '3m' | '6m' | '12m' | '18m' | '24m'
@@ -156,7 +140,6 @@ export function DealsDashboard() {
     })
   }
 
-  // Realtime: notify on new deals matching filter; do not mutate cache or totals
   useEffect(() => {
     const channel = supabase
       .channel('realtime-deals')
@@ -168,55 +151,22 @@ export function DealsDashboard() {
           const inRange =
             !appliedFilters.dateRange ||
             (
-              newDeal.date_submitted >= appliedFilters.dateRange.start! &&
-              newDeal.date_submitted <= appliedFilters.dateRange.end!
+              newDeal.created_at >= appliedFilters.dateRange.start! &&
+              newDeal.created_at <= appliedFilters.dateRange.end!
             )
           const loanTypeOk = !appliedFilters.loanType || newDeal.loan_type === appliedFilters.loanType
           const statusOk = !appliedFilters.status || newDeal.status === appliedFilters.status
-          const minOk = appliedFilters.minAmount === undefined || Number(newDeal.loan_amount_sought || 0) >= appliedFilters.minAmount
-          const maxOk = appliedFilters.maxAmount === undefined || Number(newDeal.loan_amount_sought || 0) <= appliedFilters.maxAmount
+          const minOk = appliedFilters.minAmount === undefined || Number(newDeal.loan_amount || 0) >= appliedFilters.minAmount
+          const maxOk = appliedFilters.maxAmount === undefined || Number(newDeal.loan_amount || 0) <= appliedFilters.maxAmount
 
           if (inRange && loanTypeOk && statusOk && minOk && maxOk) {
             setNewDealsCount((c) => c + 1)
-
-            // Immediate 5s notification
-            toast.info('New Deal', {
-              description: `${newDeal.client_name} • ${newDeal.loan_type} • $${Number(newDeal.loan_amount_sought || 0).toLocaleString()}`,
-              action: {
-                label: 'Refresh',
-                onClick: () => {
-                  applyRefresh()
-                  setNewDealsCount(0)
-                }
-              },
-              duration: 5000
-            })
-
-            // Final reminder after 30 seconds (also 5s), stored so we can cancel on Refresh
-            const reminderId = window.setTimeout(() => {
-              toast.info('New Deal Reminder', {
-                description: `${newDeal.client_name} • ${newDeal.loan_type} • $${Number(newDeal.loan_amount_sought || 0).toLocaleString()}`,
-                action: {
-                  label: 'Refresh',
-                  onClick: () => {
-                    applyRefresh()
-                    setNewDealsCount(0)
-                  }
-                },
-                duration: 5000
-              })
-              // After firing, remove from map
-              delete reminderTimersRef.current[newDeal.id]
-            }, 30000)
-
-            reminderTimersRef.current[newDeal.id] = reminderId
           }
         }
       )
       .subscribe()
 
     return () => {
-      // Ensure timers are cleared on cleanup, and unsubscribe
       clearReminders()
       supabase.removeChannel(channel)
     }
@@ -235,10 +185,6 @@ export function DealsDashboard() {
               </Button>
             </div>
           )}
-          <Button onClick={syncEmailsNow} size="sm">
-            <Cloud className="h-4 w-4 mr-2" />
-            Sync Emails
-          </Button>
           <Button onClick={applyRefresh} variant="outline" size="sm">
             <RefreshCw className="h-4 w-4 mr-2" />
             {t('refresh')}
@@ -246,7 +192,6 @@ export function DealsDashboard() {
         </div>
       </div>
 
-      {/* Filters */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -256,7 +201,6 @@ export function DealsDashboard() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
-            {/* Date Range Presets */}
             <div className="md:col-span-2 lg:col-span-2">
               <label className="text-sm font-medium mb-2 block">{t('date_range')}</label>
               <Select
@@ -286,7 +230,6 @@ export function DealsDashboard() {
               </Select>
             </div>
 
-            {/* Loan Type */}
             <div>
               <label className="text-sm font-medium mb-2 block">{t('loan_type')}</label>
               <Select
@@ -298,16 +241,21 @@ export function DealsDashboard() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All types</SelectItem>
+                  <SelectItem value="Merchant Cash Advance">Merchant Cash Advance</SelectItem>
+                  <SelectItem value="Term Loan">Term Loan</SelectItem>
+                  <SelectItem value="Line of Credit (LOC)">Line of Credit (LOC)</SelectItem>
+                  <SelectItem value="Factoring">Factoring</SelectItem>
+                  <SelectItem value="Equipment Financing">Equipment Financing</SelectItem>
+                  <SelectItem value="SBA 7(a)">SBA 7(a)</SelectItem>
+                  <SelectItem value="SBA 504">SBA 504</SelectItem>
+                  <SelectItem value="Commercial Real Estate (CRE)">Commercial Real Estate (CRE)</SelectItem>
                   <SelectItem value="Personal Loan">Personal Loan</SelectItem>
-                  <SelectItem value="Business Loan">Business Loan</SelectItem>
-                  <SelectItem value="Equipment Leasing">Equipment Leasing</SelectItem>
-                  <SelectItem value="Hard Money">Hard Money</SelectItem>
-                  <SelectItem value="Commercial Real Estate">Commercial Real Estate</SelectItem>
+                  <SelectItem value="Business Credit Card">Business Credit Card</SelectItem>
+                  <SelectItem value="Other">Other</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
-            {/* Min Amount */}
             <div>
               <label className="text-sm font-medium mb-2 block">{t('min_amount')}</label>
               <Input
@@ -318,7 +266,6 @@ export function DealsDashboard() {
               />
             </div>
 
-            {/* Max Amount */}
             <div>
               <label className="text-sm font-medium mb-2 block">{t('max_amount')}</label>
               <Input
@@ -329,7 +276,6 @@ export function DealsDashboard() {
               />
             </div>
 
-            {/* Status */}
             <div>
               <label className="text-sm font-medium mb-2 block">{t('status')}</label>
               <Select
@@ -341,23 +287,20 @@ export function DealsDashboard() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All statuses</SelectItem>
-                  <SelectItem value="New">New</SelectItem>
-                  <SelectItem value="Under Review">Under Review</SelectItem>
-                  <SelectItem value="Missing Information">Missing Information</SelectItem>
-                  <SelectItem value="Approved">Approved</SelectItem>
-                  <SelectItem value="Declined">Declined</SelectItem>
-                  <SelectItem value="Funded">Funded</SelectItem>
-                  <SelectItem value="Not Interested">Not Interested</SelectItem>
-                  <SelectItem value="On Hold">On Hold</SelectItem>
-                  <SelectItem value="Withdrawn">Withdrawn</SelectItem>
-                  <SelectItem value="Re-submission">Re-submission</SelectItem>
+                  <SelectItem value="new">New</SelectItem>
+                  <SelectItem value="in_review">In Review</SelectItem>
+                  <SelectItem value="missing_docs">Missing Docs</SelectItem>
+                  <SelectItem value="submitted">Submitted</SelectItem>
+                  <SelectItem value="approved">Approved</SelectItem>
+                  <SelectItem value="declined">Declined</SelectItem>
+                  <SelectItem value="funded">Funded</SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </div>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mt-4 gap-2">
             <div className="text-sm text-muted-foreground">
-              Showing {Math.min(pageSize, deals.length)} of {total} results (25 per page)
+              Showing {Math.min(pageSize, deals.length)} of {total} results ({pageSize} per page)
             </div>
             <div className="flex items-center gap-2">
               <Button onClick={resetFilters} variant="outline" size="sm">
@@ -374,7 +317,6 @@ export function DealsDashboard() {
         </CardContent>
       </Card>
 
-      {/* Deals Table */}
       <Card>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -412,12 +354,12 @@ export function DealsDashboard() {
                       )}
                       onClick={() => navigate(`/deals/${deal.id}`)}
                     >
-                      <TableCell>{formatInTimeZone(new Date(deal.date_submitted), 'America/New_York', 'MMM dd, yyyy')}</TableCell>
+                      <TableCell>{formatInTimeZone(new Date(deal.created_at), 'America/New_York', 'MMM dd, yyyy')}</TableCell>
                       <TableCell>{deal.loan_type}</TableCell>
                       <TableCell>{deal.legal_company_name}</TableCell>
                       <TableCell>{deal.client_name}</TableCell>
                       <TableCell className="text-right">
-                        ${Number(deal.loan_amount_sought || 0).toLocaleString()}
+                        ${Number(deal.loan_amount || 0).toLocaleString()}
                       </TableCell>
                       <TableCell>{getStatusBadge(deal.status)}</TableCell>
                     </TableRow>
@@ -429,7 +371,6 @@ export function DealsDashboard() {
         </CardContent>
       </Card>
 
-      {/* Pagination */}
       <Pagination>
         <PaginationContent>
           <PaginationItem>

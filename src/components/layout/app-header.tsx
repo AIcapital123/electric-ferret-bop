@@ -1,11 +1,11 @@
 import { SidebarTrigger } from '@/components/ui/sidebar'
 import { Button } from '@/components/ui/button'
-import { RefreshCw, Settings } from 'lucide-react'
+import { RefreshCw, Settings, Cloud } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { emailSyncService } from '@/components/email-sync/email-sync-service'
 import { useLanguage } from '@/components/language/language-provider'
 import { LanguageToggle } from '@/components/language/language-toggle'
+import { supabase } from '@/lib/supabase'
 
 export function AppHeader() {
   const [isSyncing, setIsSyncing] = useState(false)
@@ -14,10 +14,16 @@ export function AppHeader() {
   const handleManualSync = async () => {
     setIsSyncing(true)
     try {
-      await emailSyncService.syncEmails()
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) throw new Error('Not authenticated')
+      const { error, data } = await supabase.functions.invoke('cognito-sync', {
+        headers: { Authorization: `Bearer ${session.access_token}`, 'x-days': '30' },
+        method: 'GET'
+      })
+      if (error) throw error
       toast.success(t('refresh'))
-    } catch (error) {
-      toast.error('Email sync failed')
+    } catch (error: any) {
+      toast.error(error?.message || 'Cognito sync failed')
     } finally {
       setIsSyncing(false)
     }
@@ -36,11 +42,11 @@ export function AppHeader() {
         <Button
           onClick={handleManualSync}
           disabled={isSyncing}
-          variant="outline"
+          variant="default"
           size="sm"
         >
-          <RefreshCw className={`h-4 w-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} />
-          {t('sync_emails')}
+          <Cloud className={`h-4 w-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} />
+          Sync CognitoForms
         </Button>
         <Button variant="ghost" size="sm">
           <Settings className="h-4 w-4" />

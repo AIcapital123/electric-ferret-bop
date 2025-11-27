@@ -15,7 +15,6 @@ export function useDeals(filters: DealFilters = {}, page: number = 1) {
       const result = data as { deals: Deal[]; total: number; page: number; pageSize: number }
       return result
     },
-    // Avoid auto refetch on window focus; user clicks Refresh to refetch
     refetchOnWindowFocus: false,
   })
 }
@@ -53,9 +52,9 @@ export function useDealNotes(dealId: string) {
   })
 }
 
-export function useDealEmails(dealId: string) {
+export function useDealEmails(_dealId: string) {
   return useQuery({
-    queryKey: ['deal-emails', dealId],
+    queryKey: ['deal-emails', _dealId],
     queryFn: async (): Promise<any[]> => [],
     refetchOnWindowFocus: false,
   })

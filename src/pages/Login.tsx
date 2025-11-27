@@ -23,23 +23,20 @@ export default function Login() {
       }
       const resp = data as {
         success: boolean
-        email?: string
-        password?: string
         session?: { access_token: string; refresh_token: string }
         error?: string
       }
-      if (!resp.success || !resp.email || !resp.password) {
+      if (!resp.success || !resp.session?.access_token || !resp.session?.refresh_token) {
         toast.error(resp.error || 'Failed to create test account')
         return
       }
 
-      // Prefer direct sign in via credentials to ensure local session is set.
-      const { error: signInErr } = await supabase.auth.signInWithPassword({
-        email: resp.email,
-        password: resp.password,
+      const { error: setErr } = await supabase.auth.setSession({
+        access_token: resp.session.access_token,
+        refresh_token: resp.session.refresh_token,
       })
-      if (signInErr) {
-        toast.error(signInErr.message || 'Sign-in failed')
+      if (setErr) {
+        toast.error(setErr.message || 'Failed to start session')
         return
       }
 

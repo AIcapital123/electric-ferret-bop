@@ -7,9 +7,10 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from '@/components/ui/sidebar'
-import { Home, DollarSign, Settings, BarChart3 } from 'lucide-react'
+import { Home, DollarSign, Settings, BarChart3, HelpCircle, ListChecks, LogOut } from 'lucide-react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useLanguage } from '@/components/language/language-provider'
+import { supabase } from '@/lib/supabase'
 
 export function AppSidebar() {
   const navigate = useNavigate()
@@ -19,8 +20,10 @@ export function AppSidebar() {
   const menuItems = [
     { title: t('nav_dashboard'), icon: Home, path: '/' },
     { title: t('nav_deals'), icon: DollarSign, path: '/deals' },
+    { title: 'Tasks', icon: ListChecks, path: '/tasks' },
     { title: t('nav_analytics'), icon: BarChart3, path: '/analytics' },
     { title: t('nav_settings'), icon: Settings, path: '/settings' },
+    { title: 'Help', icon: HelpCircle, path: '/help' },
   ]
 
   return (
@@ -62,6 +65,15 @@ export function AppSidebar() {
               </SidebarMenuButton>
             </SidebarMenuItem>
           ))}
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              onClick={async () => { await supabase.auth.signOut(); navigate('/login'); }}
+              isActive={false}
+            >
+              <LogOut className="h-4 w-4" />
+              <span>Logout</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
         </SidebarMenu>
       </SidebarContent>
       <SidebarRail />

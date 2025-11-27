@@ -6,8 +6,24 @@ import PageTitle from './dashboard/PageTitle';
 import Filters from './dashboard/Filters';
 import DealTable from './dashboard/DealTable';
 import Pagination from './dashboard/Pagination';
-import { DEAL_STATUSES } from './dashboard/constants';
+import { DEAL_STATUSES, LOAN_TYPES } from './dashboard/constants';
 import type { Deal } from './dashboard/types';
+
+type FiltersState = {
+  dateRange: string // 'all' or days number string
+  loanType: string
+  minAmount: string
+  maxAmount: string
+  statusFilter: string
+  searchTerm: string
+}
+
+type ListDealsResponse = {
+  deals: Deal[]
+  page: number
+  pageSize: number
+  total: number
+}
 
 export default function Dashboard() {
   const [deals, setDeals] = useState<Deal[]>([]);
@@ -15,24 +31,29 @@ export default function Dashboard() {
   const [syncing, setSyncing] = useState(false);
   const [lastSync, setLastSync] = useState<string | null>(null);
 
-  // Filters
-  const [dateRange, setDateRange] = useState('30');
-  const [loanType, setLoanType] = useState('all');
-  const [minAmount, setMinAmount] = useState('');
-  const [maxAmount, setMaxAmount] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [searchTerm, setSearchTerm] = useState('');
+  const [filters, setFilters] = useState<FiltersState>({
+    dateRange: '30',
+    loanType: 'all',
+    minAmount: '',
+    maxAmount: '',
+    statusFilter: 'all',
+    searchTerm: '',
+  });
 
-  // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 25;
+  const [totalResults, setTotalResults] = useState(0);
 
   useEffect(() => {
     checkAuth();
+  }, []);
+
+  useEffect(() => {
     fetchDeals();
     const savedSync = localStorage.getItem('lastCognitoSync');
     if (savedSync) setLastSync(savedSync);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage, filters.dateRange, filters.loanType, filters.minAmount, filters.maxAmount, filters.statusFilter, filters.searchTerm]);
 
   const checkAuth = async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -41,14 +62,33 @@ export default function Dashboard() {
     }
   };
 
+  const buildFiltersPayload = () => {
+    const f: any = {};
+    if (filters.loanType !== 'all') f.loanType = filters.loanType;
+    if (filters.statusFilter !== 'all') f.status = filters.statusFilter;
+    if (filters.minAmount) f.minAmount = Number(filters.minAmount);
+    if (filters.maxAmount) f.maxAmount = Number(filters.maxAmount);
+    if (filters.dateRange !== 'all') {
+      const today = new Date();
+      const start = new Date();
+      start.setDate(today.getDate() - parseInt(filters.dateRange));
+      const toYmd = (d: Date) => d.toISOString().slice(0, 10);
+      f.dateRange = { start: toYmd(start), end: toYmd(today) };
+    }
+    if (filters.searchTerm.trim()) f.search = filters.searchTerm.trim();
+    return f;
+  };
+
   const fetchDeals = async () => {
     try {
-      const { data, error } = await supabase
-        .from('deals')
-        .select('*')
-        .order('created_at', { ascending: false });
+      setLoading(true);
+      const { data, error } = await supabase.functions.invoke('list-deals', {
+        body: { filters: buildFiltersPayload(), page: currentPage, pageSize: itemsPerPage },
+      });
       if (error) throw error;
-      setDeals((data || []) as Deal[]);
+      const res = data as ListDealsResponse;
+      setDeals(res.deals || []);
+      setTotalResults(res.total || 0);
     } catch (e) {
       console.error('Error fetching deals:', e);
     } finally {
@@ -62,8 +102,7 @@ export default function Dashboard() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Not authenticated');
 
-      const days = customDays || (dateRange !== 'all' ? parseInt(dateRange) : 30);
-
+      const days = customDays || (filters.dateRange !== 'all' ? parseInt(filters.dateRange) : 30);
       const { data, error } = await supabase.functions.invoke('cognito-sync', {
         headers: { Authorization: `Bearer ${session.access_token}`, 'x-days': String(days) },
         method: 'GET',
@@ -75,13 +114,7 @@ export default function Dashboard() {
       setLastSync(now);
       localStorage.setItem('lastCognitoSync', now);
 
-      const message = `CognitoForms sync completed!\n\n` +
-        `✅ ${data.processed} new deals processed\n` +
-        `⏭️ ${data.skipped} deals skipped\n` +
-        `❌ ${data.errors || 0} errors\n` +
-        `📋 ${data.forms_checked} forms checked\n` +
-        `📅 Date range: Last ${data.date_range_days} days`;
-      alert(message);
+      alert(`CognitoForms sync completed! Processed: ${data.processed}, Skipped: ${data.skipped}, Errors: ${data.errors || 0}`);
       fetchDeals();
     } catch (e) {
       console.error('CognitoForms sync error:', e);
@@ -93,12 +126,12 @@ export default function Dashboard() {
 
   const updateStatus = async (dealId: string, newStatus: string) => {
     try {
-      const { error } = await supabase
-        .from('deals')
-        .update({ status: newStatus })
-        .eq('id', dealId);
+      const { data, error } = await supabase.functions.invoke('update-deal-status', {
+        body: { id: dealId, status: newStatus },
+      });
       if (error) throw error;
-      setDeals(prev => prev.map(d => d.id === dealId ? { ...d, status: newStatus } : d));
+      const updated = (data as { deal: Deal }).deal;
+      setDeals(prev => prev.map(d => d.id === dealId ? updated : d));
     } catch (e) {
       console.error('Error updating status:', e);
       alert('Failed to update status');
@@ -106,58 +139,26 @@ export default function Dashboard() {
   };
 
   const resetFilters = () => {
-    setDateRange('30');
-    setLoanType('all');
-    setMinAmount('');
-    setMaxAmount('');
-    setStatusFilter('all');
-    setSearchTerm('');
+    setFilters({
+      dateRange: '30',
+      loanType: 'all',
+      minAmount: '',
+      maxAmount: '',
+      statusFilter: 'all',
+      searchTerm: '',
+    });
     setCurrentPage(1);
   };
 
-  const filteredDeals = useMemo(() => {
-    return deals.filter(deal => {
-      if (dateRange !== 'all') {
-        const dealDate = new Date(deal.created_at);
-        const cutoff = new Date();
-        cutoff.setDate(cutoff.getDate() - parseInt(dateRange));
-        if (dealDate < cutoff) return false;
-      }
-      if (statusFilter !== 'all' && deal.status !== statusFilter) return false;
-
-      if (loanType !== 'all') {
-        const type = (deal.loan_type || '').toString();
-        if (type !== loanType) return false;
-      }
-
-      const amount = Number(deal.loan_amount ?? deal.loan_amount_sought) || 0;
-      if (minAmount && amount < parseInt(minAmount)) return false;
-      if (maxAmount && amount > parseInt(maxAmount)) return false;
-
-      if (searchTerm) {
-        const s = searchTerm.toLowerCase();
-        const text = [
-          deal.legal_company_name,
-          deal.client_name || '',
-          deal.client_email || '',
-          deal.client_phone || '',
-          deal.loan_type || '',
-        ].join(' ').toLowerCase();
-        if (!text.includes(s)) return false;
-      }
-      return true;
-    });
-  }, [deals, dateRange, statusFilter, loanType, minAmount, maxAmount, searchTerm]);
-
-  const totalPages = Math.max(1, Math.ceil(filteredDeals.length / itemsPerPage));
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const paginatedDeals = filteredDeals.slice(startIndex, startIndex + itemsPerPage);
+  const filteredDeals = useMemo(() => deals, [deals]);
+  const totalPages = Math.max(1, Math.ceil(totalResults / itemsPerPage));
 
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }).format(amount);
 
   const getSourceBadge = (deal: Deal) => {
-    if (deal.cognito_entry_id) {
+    const source = (deal.source || '').toLowerCase();
+    if (deal.cognito_entry_id || source === 'cognitoforms') {
       return (
         <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
           <span className="w-2 h-2 bg-green-400 rounded-full mr-1"></span>
@@ -165,7 +166,7 @@ export default function Dashboard() {
         </span>
       );
     }
-    if (deal.gmail_message_id) {
+    if (source === 'gmail' || source === 'gmail (legacy)' || deal.gmail_message_id) {
       return (
         <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
           <span className="w-2 h-2 bg-blue-400 rounded-full mr-1"></span>
@@ -173,7 +174,7 @@ export default function Dashboard() {
         </span>
       );
     }
-    if (deal.source === 'test_data') {
+    if (source === 'test_data') {
       return (
         <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
           <span className="w-2 h-2 bg-purple-400 rounded-full mr-1"></span>
@@ -189,7 +190,7 @@ export default function Dashboard() {
     );
   };
 
-  if (loading) {
+  if (loading && !deals.length) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -201,16 +202,14 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
-      {/* Sidebar */}
+    <div className="min-h-screen bg-gray-50 flex font-inter">
       <Sidebar />
 
-      {/* Main Content */}
       <div className="flex-1 flex flex-col">
         <Header
           syncing={syncing}
           onSync={() => syncCognitoForms()}
-          onRefresh={() => window.location.reload()}
+          onRefresh={() => fetchDeals()}
           onSignOut={() => supabase.auth.signOut()}
         />
 
@@ -218,19 +217,19 @@ export default function Dashboard() {
 
         <div className="flex-1 p-6">
           <Filters
-            dateRange={dateRange}
-            setDateRange={setDateRange}
-            loanType={loanType}
-            setLoanType={setLoanType}
-            minAmount={minAmount}
-            setMinAmount={setMinAmount}
-            maxAmount={maxAmount}
-            setMaxAmount={setMaxAmount}
-            statusFilter={statusFilter}
-            setStatusFilter={setStatusFilter}
-            searchTerm={searchTerm}
-            setSearchTerm={setSearchTerm}
-            itemsInfo={{ startIndex, itemsPerPage, total: filteredDeals.length }}
+            dateRange={filters.dateRange}
+            setDateRange={(v) => { setFilters(p => ({ ...p, dateRange: v })); setCurrentPage(1); }}
+            loanType={filters.loanType}
+            setLoanType={(v) => { setFilters(p => ({ ...p, loanType: v })); setCurrentPage(1); }}
+            minAmount={filters.minAmount}
+            setMinAmount={(v) => { setFilters(p => ({ ...p, minAmount: v })); setCurrentPage(1); }}
+            maxAmount={filters.maxAmount}
+            setMaxAmount={(v) => { setFilters(p => ({ ...p, maxAmount: v })); setCurrentPage(1); }}
+            statusFilter={filters.statusFilter}
+            setStatusFilter={(v) => { setFilters(p => ({ ...p, statusFilter: v })); setCurrentPage(1); }}
+            searchTerm={filters.searchTerm}
+            setSearchTerm={(v) => { setFilters(p => ({ ...p, searchTerm: v })); setCurrentPage(1); }}
+            itemsInfo={{ startIndex: (currentPage - 1) * itemsPerPage, itemsPerPage, total: totalResults }}
             onPrevPage={() => setCurrentPage(Math.max(1, currentPage - 1))}
             onNextPage={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
             canPrev={currentPage > 1}
@@ -239,7 +238,7 @@ export default function Dashboard() {
           />
 
           <DealTable
-            deals={paginatedDeals}
+            deals={filteredDeals}
             onUpdateStatus={updateStatus}
             formatCurrency={formatCurrency}
             getSourceBadge={getSourceBadge}

@@ -8,8 +8,6 @@ const corsHeaders = {
 
 type CreateTestAccountResponse = {
   success: boolean
-  email?: string
-  password?: string
   session?: {
     access_token: string
     refresh_token: string
@@ -49,11 +47,23 @@ function personName(): string {
 }
 
 function loanType(): string {
-  return pick(["Business Loan", "Equipment Financing", "Working Capital", "Real Estate", "Merchant Cash Advance", "SBA Loan", "Line of Credit"])
+  return pick([
+    "Merchant Cash Advance",
+    "Term Loan",
+    "Line of Credit (LOC)",
+    "Factoring",
+    "Equipment Financing",
+    "SBA 7(a)",
+    "SBA 504",
+    "Commercial Real Estate (CRE)",
+    "Personal Loan",
+    "Business Credit Card",
+    "Other"
+  ])
 }
 
 function status(): string {
-  return pick(["New", "Contacted", "Qualified", "Documentation", "Underwriting", "Approved", "Funded", "Declined"])
+  return pick(["new", "in_review", "missing_docs", "submitted", "approved", "funded", "declined"])
 }
 
 serve(async (req) => {
@@ -74,7 +84,7 @@ serve(async (req) => {
     const publicClient = createClient(supabaseUrl, anonKey)
 
     // Create unique test user
-    const email = `test-${Date.now()}@demo.gokapital.com`
+    const email = `demo-${Date.now()}@test.gokapital-crm.com`
     const password = "TestAccount123!"
 
     const { data: createdUser, error: createErr } = await admin.auth.admin.createUser({
@@ -90,17 +100,17 @@ serve(async (req) => {
 
     const userId = createdUser.user.id
 
-    // Seed 50 deals
+    // Seed 50 deals (canonical schema)
     const rows = Array.from({ length: 50 }).map(() => ({
       legal_company_name: companyName(),
       client_name: personName(),
-      loan_amount_sought: randomInt(15000, 500000),
+      loan_amount: randomInt(15000, 500000),
       loan_type: loanType(),
       status: status(),
       source: "test_data",
       user_id: userId,
-      date_submitted: new Date().toISOString().split("T")[0],
       created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     }))
 
     const { error: insertErr } = await admin.from("deals").insert(rows)
@@ -115,14 +125,12 @@ serve(async (req) => {
     })
 
     if (signInErr || !signInData.session) {
-      return json({ success: true, email, password }, 200)
+      return json({ success: false, error: signInErr?.message || "Failed to sign in test user" }, 500)
     }
 
     const sess = signInData.session
     const response: CreateTestAccountResponse = {
       success: true,
-      email,
-      password,
       session: {
         access_token: sess.access_token,
         refresh_token: sess.refresh_token,

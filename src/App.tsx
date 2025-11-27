@@ -12,8 +12,17 @@ import SettingsPage from "./pages/Settings"
 import Login from "./pages/Login"
 import RequireAuth from "@/components/auth/RequireAuth"
 import { LanguageProvider } from "@/components/language/language-provider"
+import AssistantWidget from "@/components/chat/AssistantWidget"
+import HelpPage from "./pages/Help"
 
 const queryClient = new QueryClient()
+
+const WithAssistant = ({ children }: { children: React.ReactNode }) => (
+  <>
+    {children}
+    <AssistantWidget />
+  </>
+)
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -24,11 +33,12 @@ const App = () => (
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<Login />} />
-            <Route path="/" element={<RequireAuth><Index /></RequireAuth>} />
-            <Route path="/deals" element={<RequireAuth><DealsPage /></RequireAuth>} />
-            <Route path="/analytics" element={<RequireAuth><AnalyticsPage /></RequireAuth>} />
-            <Route path="/settings" element={<RequireAuth><SettingsPage /></RequireAuth>} />
-            <Route path="/deals/:id" element={<RequireAuth><DealDetailPage /></RequireAuth>} />
+            <Route path="/" element={<RequireAuth><WithAssistant><Index /></WithAssistant></RequireAuth>} />
+            <Route path="/deals" element={<RequireAuth><WithAssistant><DealsPage /></WithAssistant></RequireAuth>} />
+            <Route path="/analytics" element={<RequireAuth><WithAssistant><AnalyticsPage /></WithAssistant></RequireAuth>} />
+            <Route path="/settings" element={<RequireAuth><WithAssistant><SettingsPage /></WithAssistant></RequireAuth>} />
+            <Route path="/deals/:id" element={<RequireAuth><WithAssistant><DealDetailPage /></WithAssistant></RequireAuth>} />
+            <Route path="/help" element={<RequireAuth><WithAssistant><HelpPage /></WithAssistant></RequireAuth>} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>

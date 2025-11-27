@@ -1,14 +1,16 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+// @ts-nocheck
+import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-days',
+  'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
 };
 
 const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000001';
-const COGNITO_API_KEY = Deno.env.get('COGNITO_API_KEY') ?? '';
-const COGNITO_ORG_ID = Deno.env.get('COGNITO_ORG_ID') ?? '';
+const COGNITO_API_TOKEN = Deno.env.get('COGNITO_API_TOKEN') ?? '';
+const COGNITO_ORG_ID = Deno.env.get('COGNITO_ORG_ID') ?? '6f375664-c614-432c-849e-884e88423227';
 
 const INCLUDED_FORMS = new Set<string>([
   'Broker Referral Agreement',
@@ -38,20 +40,17 @@ serve(async (req) => {
   }
 
   try {
-    console.log('🚀 CognitoForms sync started');
-
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
     if (!supabaseUrl || !supabaseKey) {
       return json({ success: false, error: 'Supabase env not set' }, 500);
     }
-    if (!COGNITO_API_KEY || !COGNITO_ORG_ID) {
+    if (!COGNITO_API_TOKEN || !COGNITO_ORG_ID) {
       return json({ success: false, error: 'Missing Cognito env vars' }, 500);
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Verify user authentication
     const authHeader = req.headers.get('Authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return json({ success: false, error: 'No authorization header' }, 401);
@@ -62,13 +61,9 @@ serve(async (req) => {
     if (userError || !user) {
       return json({ success: false, error: 'Invalid user token' }, 401);
     }
-    console.log('✅ User authenticated:', user.email);
 
-    // Webhook (POST) → SYSTEM_USER_ID ownership
     if (req.method === 'POST') {
       const submission = await req.json();
-      console.log('📥 Webhook received:', submission);
-
       const dealData = parseCognitoSubmissionEnhanced(submission, SYSTEM_USER_ID);
 
       if (dealData.cognito_entry_id) {
@@ -88,41 +83,32 @@ serve(async (req) => {
         .select('id')
         .limit(1);
       if (error) {
-        console.error('❌ Database error:', error);
+        console.error('Database error:', error);
         return json({ success: false, error: 'Database error' }, 500);
       }
 
-      console.log('✅ New deal created via webhook:', dealData.legal_company_name);
       return json({ success: true, deal_id: data?.[0]?.id }, 200);
     }
 
-    // Manual sync (GET) → initiating user's ownership
     if (req.method === 'GET') {
       const url = new URL(req.url);
       const headerDays = req.headers.get('x-days') || undefined;
       const daysBack = parseInt(url.searchParams.get('days') || headerDays || '30');
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - (Number.isFinite(daysBack) ? daysBack : 30));
-      console.log(`📅 Syncing entries since ${startDate.toISOString()} (${daysBack} days)`);
 
-      // List forms
-      const formsResponse = await fetch(
+      const allForms = await fetchWithBackoff(
         `https://www.cognitoforms.com/api/organizations/${COGNITO_ORG_ID}/forms`,
-        {
-          headers: {
-            Authorization: `Bearer ${COGNITO_API_KEY}`,
-            'Content-Type': 'application/json',
-          },
-        }
+        { headers: { Authorization: `Bearer ${COGNITO_API_TOKEN}`, 'Content-Type': 'application/json' } }
       );
 
-      if (!formsResponse.ok) {
-        const t = await formsResponse.text();
-        console.error('❌ CognitoForms API error:', t);
-        return json({ success: false, error: `CognitoForms API error: ${formsResponse.status}` }, 500);
+      if (!allForms.ok) {
+        const t = await allForms.text();
+        console.error('CognitoForms API error:', t);
+        return json({ success: false, error: `CognitoForms API error: ${allForms.status}` }, 500);
       }
 
-      const forms = await formsResponse.json();
+      const forms = await allForms.json();
       const usableForms = (forms || []).filter((f: any) => {
         const name = String(f.Name || '').toLowerCase();
         if (EXCLUDED_FORMS.has(name)) return false;
@@ -130,33 +116,23 @@ serve(async (req) => {
         return true;
       });
 
-      console.log(`📋 Found ${forms.length} forms; using ${usableForms.length}`);
-
       let totalProcessed = 0;
       let totalSkipped = 0;
       let totalErrors = 0;
 
       for (const form of usableForms) {
-        console.log(`📝 Processing form: ${form.Name} (ID: ${form.Id})`);
-
-        const entriesResponse = await fetch(
+        const entriesResp = await fetchWithBackoff(
           `https://www.cognitoforms.com/api/organizations/${COGNITO_ORG_ID}/forms/${form.Id}/entries?filter=DateCreated ge ${startDate.toISOString()}&orderBy=DateCreated desc`,
-          {
-            headers: {
-              Authorization: `Bearer ${COGNITO_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-          }
+          { headers: { Authorization: `Bearer ${COGNITO_API_TOKEN}`, 'Content-Type': 'application/json' } }
         );
 
-        if (!entriesResponse.ok) {
-          console.error(`❌ Error fetching entries for form ${form.Id}: ${entriesResponse.status}`);
+        if (!entriesResp.ok) {
+          console.error(`Error fetching entries for form ${form.Id}: ${entriesResp.status}`);
           totalErrors++;
           continue;
         }
 
-        const entries = await entriesResponse.json();
-        console.log(`📊 Found ${entries.length} entries for form ${form.Name}`);
+        const entries = await entriesResp.json();
 
         for (const entry of entries) {
           try {
@@ -175,20 +151,18 @@ serve(async (req) => {
             const { error } = await supabase.from('deals').insert(dealData);
 
             if (error) {
-              console.error('❌ Insert error:', error);
+              console.error('Insert error:', error);
               totalErrors++;
             } else {
               totalProcessed++;
-              console.log('✅ Processed:', dealData.legal_company_name);
             }
           } catch (entryError) {
-            console.error('❌ Error processing entry:', entryError);
+            console.error('Error processing entry:', entryError);
             totalErrors++;
           }
         }
       }
 
-      console.log(`✅ Sync complete: ${totalProcessed} new, ${totalSkipped} skipped, ${totalErrors} errors`);
       return json({
         success: true,
         processed: totalProcessed,
@@ -202,7 +176,7 @@ serve(async (req) => {
 
     return json({ success: false, error: 'Method not allowed' }, 405);
   } catch (error) {
-    console.error('❌ Fatal error:', error);
+    console.error('Fatal error:', error);
     return json({ success: false, error: (error as Error).message }, 500);
   }
 });
@@ -214,10 +188,24 @@ function json(payload: unknown, status = 200): Response {
   });
 }
 
-// Enhanced parsing while preserving existing schema fields; authoritative amount fields
+async function fetchWithBackoff(url: string, init: RequestInit, maxAttempts = 5): Promise<Response> {
+  let attempt = 0;
+  let delayMs = 500;
+  while (attempt < maxAttempts) {
+    const resp = await fetch(url, init);
+    if (resp.status !== 429 && resp.status < 500) {
+      return resp;
+    }
+    await new Promise((r) => setTimeout(r, delayMs));
+    delayMs = Math.min(15000, delayMs * 2);
+    attempt++;
+  }
+  return fetch(url, init);
+}
+
 function parseCognitoSubmissionEnhanced(entry: any, userId: string, form?: any) {
   const fieldData = extractComprehensiveFieldData(entry);
-  const statusTitleCase = determineInitialStatusTitleCase(fieldData);
+  const statusCanonical = determineInitialStatusCanonical(fieldData);
   const loanType = determineLoanType(fieldData, entry, form);
   const clientName = extractClientName(fieldData, entry);
   const createdIso = new Date(entry.DateCreated || entry.DateSubmitted || Date.now()).toISOString();
@@ -236,40 +224,33 @@ function parseCognitoSubmissionEnhanced(entry: any, userId: string, form?: any) 
   };
 
   return {
-    // Cognito refs
     cognito_entry_id: entry.Id ?? null,
     cognito_entry_number: entry.Number ?? null,
     cognito_form_id: form?.Id ?? entry.FormId ?? null,
 
-    // Primary fields
     legal_company_name: fieldData.companyName || `Company ${entry.Number || entry.Id}`,
     client_name: clientName || null,
-    client_email: fieldData.email || null,
-    client_phone: cleanPhoneNumber(fieldData.phone),
+    email: fieldData.email || null,
+    phone: cleanPhoneNumber(fieldData.phone),
 
-    // Authoritative numeric fields
     loan_amount: fieldData.loanAmount || 0,
     revenue_annual: revenueAnnual,
 
-    // Compatibility fields (if your UI still relies on loan_amount_sought)
-    loan_amount_sought: fieldData.loanAmount || 0,
-
-    // Classification
     loan_type: loanType,
-    status: statusTitleCase, // Keep Title Case to match existing UI components
+    status: statusCanonical,
     source: 'CognitoForms',
 
-    // Extras / future-proof
     use_of_funds: fieldData.purpose || null,
     industry: fieldData.industry || null,
     state: fieldData.state || null,
     notes_internal: null,
     assigned_to: null,
 
-    // Storage
     created_at: createdIso,
+    updated_at: createdIso,
     cognito_raw: cognitoRaw,
     raw_email: JSON.stringify(cognitoRaw),
+
     user_id: userId,
   };
 }
@@ -347,7 +328,7 @@ function extractComprehensiveFieldData(entry: any) {
   return data;
 }
 
-function determineInitialStatusTitleCase(fieldData: any): string {
+function determineInitialStatusCanonical(fieldData: any): string {
   let score = 0;
   if (fieldData.companyName) score += 2;
   if (fieldData.email) score += 2;
@@ -357,23 +338,23 @@ function determineInitialStatusTitleCase(fieldData: any): string {
   if (fieldData.timeInBusiness) score += 1;
   if (fieldData.industry) score += 1;
 
-  if (score >= 8) return 'Qualified';
-  if (score >= 6) return 'Contacted';
-  return 'New';
+  if (score >= 8) return 'in_review';
+  if (score >= 6) return 'submitted';
+  return 'new';
 }
 
 function determineLoanType(fieldData: any, entry: any, form?: any): string {
   const map: Record<string, string[]> = {
     'Equipment Financing': ['equipment','machinery','vehicle','truck','construction'],
-    'Working Capital': ['working capital','inventory','payroll','operating'],
+    'Line of Credit (LOC)': ['line of credit','loc','revolving credit'],
+    'Merchant Cash Advance': ['mca','merchant','cash advance','daily sales'],
     'Commercial Real Estate (CRE)': ['real estate','property','building','commercial property'],
     'SBA 7(a)': ['sba 7(a)'],
     'SBA 504': ['sba 504'],
-    'Merchant Cash Advance': ['mca','merchant','cash advance','daily sales'],
-    'Line of Credit (LOC)': ['line of credit','loc','revolving credit'],
     'Term Loan': ['term loan','business loan','general business'],
     'Personal Loan': ['personal loan'],
     'Factoring': ['factoring','receivables'],
+    'Business Credit Card': ['credit card'],
   };
 
   if (form?.Name) {
@@ -398,7 +379,7 @@ function determineLoanType(fieldData: any, entry: any, form?: any): string {
   }
 
   if (fieldData.loanAmount > 500000) return 'Commercial Real Estate (CRE)';
-  if (fieldData.loanAmount < 100000) return 'Working Capital';
+  if (fieldData.loanAmount < 100000) return 'Merchant Cash Advance';
   return 'Term Loan';
 }
 

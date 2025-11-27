@@ -1,5 +1,14 @@
-import { createRoot } from "react-dom/client";
-import App from "./App.tsx";
-import "./globals.css";
+import { createRoot } from "react-dom/client"
+import App from "./App.tsx"
+import "./globals.css"
+import VercelAnalytics from "./components/analytics/VercelAnalytics"
+import SentryInit from "./components/analytics/SentryInit"
 
-createRoot(document.getElementById("root")!).render(<App />);
+const root = document.getElementById("root")!
+createRoot(root).render(
+  <>
+    <SentryInit />
+    <VercelAnalytics />
+    <App />
+  </>
+)

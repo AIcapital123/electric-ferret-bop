@@ -13,8 +13,8 @@ export default function AnalyticsPage() {
   const { t } = useLanguage();
 
   const chartData = deals.map(d => ({
-    date: d.date_submitted,
-    amount: Number(d.loan_amount_sought || 0),
+    date: d.created_at,
+    amount: Number(d.loan_amount || 0),
     status: d.status,
   }));
 

@@ -20,6 +20,7 @@ export default function SettingsPage() {
   const [endDate, setEndDate] = useState<string>('');
   const { t } = useLanguage();
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     const checkAdmin = async () => {
@@ -143,15 +144,35 @@ export default function SettingsPage() {
                       </TableRow>
                     ) : (
                       errors.map(err => (
-                        <TableRow key={err.id}>
-                          <TableCell>{new Date(err.timestamp).toLocaleString()}</TableCell>
-                          <TableCell>{err.source}</TableCell>
-                          <TableCell>{err.code || '-'}</TableCell>
-                          <TableCell className="max-w-md truncate">{err.message}</TableCell>
-                          <TableCell className="max-w-md truncate">
-                            {err.details ? JSON.stringify(err.details) : '-'}
-                          </TableCell>
-                        </TableRow>
+                        <>
+                          <TableRow
+                            key={err.id}
+                            className="cursor-pointer"
+                            onClick={() => setExpanded(prev => ({ ...prev, [err.id]: !prev[err.id] }))}
+                          >
+                            <TableCell>{new Date(err.timestamp).toLocaleString()}</TableCell>
+                            <TableCell>{err.source}</TableCell>
+                            <TableCell>{err.code || '-'}</TableCell>
+                            <TableCell className="max-w-md truncate">{err.message}</TableCell>
+                            <TableCell className="max-w-md truncate">
+                              {err.details ? JSON.stringify(err.details) : '-'}
+                            </TableCell>
+                          </TableRow>
+                          {expanded[err.id] && (
+                            <TableRow>
+                              <TableCell colSpan={5}>
+                                <div className="rounded-md border bg-muted/30 p-3">
+                                  <div className="text-xs text-muted-foreground mb-2">
+                                    Full entry details
+                                  </div>
+                                  <pre className="whitespace-pre-wrap text-xs leading-relaxed overflow-auto max-h-64">
+                                    {JSON.stringify(err, null, 2)}
+                                  </pre>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </>
                       ))
                     )}
                   </TableBody>

@@ -39,6 +39,13 @@ export class EmailSyncService {
       if (this.config.startDate) body.startDate = this.config.startDate
       if (this.config.endDate) body.endDate = this.config.endDate
 
+      logError({
+        source: 'client',
+        code: 'gmail_sync_start',
+        message: 'Starting legacy Gmail sync',
+        details: { body }
+      })
+
       // Try to get the current user's access token for Authorization.
       // If not available (no auth in app), proceed without Authorization header.
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
@@ -78,6 +85,13 @@ export class EmailSyncService {
           })
         )
       }
+
+      logError({
+        source: 'client',
+        code: 'gmail_sync_success',
+        message: 'Legacy Gmail sync completed',
+        details: { parsed_count: (json.parsed || []).length, inserted: json.inserted }
+      })
 
       if (newApps > 0) {
         showSuccess(`${newApps} new application${newApps > 1 ? 's' : ''} received`)

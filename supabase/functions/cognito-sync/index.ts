@@ -38,7 +38,7 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
-
+  
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -62,8 +62,20 @@ serve(async (req) => {
       return json({ success: false, error: 'Invalid user token' }, 401);
     }
 
+    // Support POST for bulk sync when a body with `days` or `action: 'bulk_sync'` is provided.
     if (req.method === 'POST') {
-      const submission = await req.json();
+      let submission: any = {};
+      try {
+        submission = await req.json();
+      } catch {
+        submission = {};
+      }
+
+      if (submission && (submission.action === 'bulk_sync' || submission.days || submission.startDate || submission.endDate)) {
+        const daysBack = parseInt(String(submission.days ?? '30'));
+        return await runBulkSync(supabase, user.id, Number.isFinite(daysBack) ? daysBack : 30);
+      }
+
       const dealData = parseCognitoSubmissionEnhanced(submission, SYSTEM_USER_ID);
 
       if (dealData.cognito_entry_id) {
@@ -94,84 +106,7 @@ serve(async (req) => {
       const url = new URL(req.url);
       const headerDays = req.headers.get('x-days') || undefined;
       const daysBack = parseInt(url.searchParams.get('days') || headerDays || '30');
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - (Number.isFinite(daysBack) ? daysBack : 30));
-
-      const allForms = await fetchWithBackoff(
-        `https://www.cognitoforms.com/api/organizations/${COGNITO_ORG_ID}/forms`,
-        { headers: { Authorization: `Bearer ${COGNITO_API_TOKEN}`, 'Content-Type': 'application/json' } }
-      );
-
-      if (!allForms.ok) {
-        const t = await allForms.text();
-        console.error('CognitoForms API error:', t);
-        return json({ success: false, error: `CognitoForms API error: ${allForms.status}` }, 500);
-      }
-
-      const forms = await allForms.json();
-      const usableForms = (forms || []).filter((f: any) => {
-        const name = String(f.Name || '').toLowerCase();
-        if (EXCLUDED_FORMS.has(name)) return false;
-        if (INCLUDED_FORMS.size > 0) return INCLUDED_FORMS.has(name);
-        return true;
-      });
-
-      let totalProcessed = 0;
-      let totalSkipped = 0;
-      let totalErrors = 0;
-
-      for (const form of usableForms) {
-        const entriesResp = await fetchWithBackoff(
-          `https://www.cognitoforms.com/api/organizations/${COGNITO_ORG_ID}/forms/${form.Id}/entries?filter=DateCreated ge ${startDate.toISOString()}&orderBy=DateCreated desc`,
-          { headers: { Authorization: `Bearer ${COGNITO_API_TOKEN}`, 'Content-Type': 'application/json' } }
-        );
-
-        if (!entriesResp.ok) {
-          console.error(`Error fetching entries for form ${form.Id}: ${entriesResp.status}`);
-          totalErrors++;
-          continue;
-        }
-
-        const entries = await entriesResp.json();
-
-        for (const entry of entries) {
-          try {
-            const { data: existing } = await supabase
-              .from('deals')
-              .select('id')
-              .eq('cognito_entry_id', entry.Id)
-              .limit(1);
-            const already = Array.isArray(existing) && existing.length > 0;
-            if (already) {
-              totalSkipped++;
-              continue;
-            }
-
-            const dealData = parseCognitoSubmissionEnhanced(entry, user.id, form);
-            const { error } = await supabase.from('deals').insert(dealData);
-
-            if (error) {
-              console.error('Insert error:', error);
-              totalErrors++;
-            } else {
-              totalProcessed++;
-            }
-          } catch (entryError) {
-            console.error('Error processing entry:', entryError);
-            totalErrors++;
-          }
-        }
-      }
-
-      return json({
-        success: true,
-        processed: totalProcessed,
-        skipped: totalSkipped,
-        errors: totalErrors,
-        forms_checked: usableForms.length,
-        date_range_days: daysBack,
-        sync_date: new Date().toISOString(),
-      }, 200);
+      return await runBulkSync(supabase, user.id, Number.isFinite(daysBack) ? daysBack : 30);
     }
 
     return json({ success: false, error: 'Method not allowed' }, 405);
@@ -180,6 +115,88 @@ serve(async (req) => {
     return json({ success: false, error: (error as Error).message }, 500);
   }
 });
+
+// Helper to run bulk sync (shared by GET and POST)
+async function runBulkSync(supabase: any, authUserId: string, daysBack: number): Promise<Response> {
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - (Number.isFinite(daysBack) ? daysBack : 30));
+
+  const allForms = await fetchWithBackoff(
+    `https://www.cognitoforms.com/api/organizations/${COGNITO_ORG_ID}/forms`,
+    { headers: { Authorization: `Bearer ${COGNITO_API_TOKEN}`, 'Content-Type': 'application/json' } }
+  );
+
+  if (!allForms.ok) {
+    const t = await allForms.text();
+    console.error('CognitoForms API error:', t);
+    return json({ success: false, error: `CognitoForms API error: ${allForms.status}` }, 500);
+  }
+
+  const forms = await allForms.json();
+  const usableForms = (forms || []).filter((f: any) => {
+    const name = String(f.Name || '').toLowerCase();
+    if (EXCLUDED_FORMS.has(name)) return false;
+    if (INCLUDED_FORMS.size > 0) return INCLUDED_FORMS.has(name);
+    return true;
+  });
+
+  let totalProcessed = 0;
+  let totalSkipped = 0;
+  let totalErrors = 0;
+
+  for (const form of usableForms) {
+    const entriesResp = await fetchWithBackoff(
+      `https://www.cognitoforms.com/api/organizations/${COGNITO_ORG_ID}/forms/${form.Id}/entries?filter=DateCreated ge ${startDate.toISOString()}&orderBy=DateCreated desc`,
+      { headers: { Authorization: `Bearer ${COGNITO_API_TOKEN}`, 'Content-Type': 'application/json' } }
+    );
+
+    if (!entriesResp.ok) {
+      console.error(`Error fetching entries for form ${form.Id}: ${entriesResp.status}`);
+      totalErrors++;
+      continue;
+    }
+
+    const entries = await entriesResp.json();
+
+    for (const entry of entries) {
+      try {
+        const { data: existing } = await supabase
+          .from('deals')
+          .select('id')
+          .eq('cognito_entry_id', entry.Id)
+          .limit(1);
+        const already = Array.isArray(existing) && existing.length > 0;
+        if (already) {
+          totalSkipped++;
+          continue;
+        }
+
+        const dealData = parseCognitoSubmissionEnhanced(entry, authUserId, form);
+        const { error } = await supabase.from('deals').insert(dealData);
+
+        if (error) {
+          console.error('Insert error:', error);
+          totalErrors++;
+        } else {
+          totalProcessed++;
+        }
+      } catch (entryError) {
+        console.error('Error processing entry:', entryError);
+        totalErrors++;
+      }
+    }
+  }
+
+  return json({
+    success: true,
+    processed: totalProcessed,
+    skipped: totalSkipped,
+    errors: totalErrors,
+    forms_checked: usableForms.length,
+    date_range_days: daysBack,
+    sync_date: new Date().toISOString(),
+  }, 200);
+}
 
 function json(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {

@@ -7,6 +7,7 @@ import { useLanguage } from '@/components/language/language-provider'
 import { LanguageToggle } from '@/components/language/language-toggle'
 import { supabase } from '@/lib/supabase'
 import { useNavigate } from 'react-router-dom'
+import { logError } from '@/lib/error-log'
 
 export function AppHeader() {
   const [isSyncing, setIsSyncing] = useState(false)
@@ -18,16 +19,38 @@ export function AppHeader() {
     try {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) throw new Error('Not authenticated')
+
+      logError({
+        source: 'client',
+        code: 'cognito_sync_start',
+        message: 'Starting CognitoForms sync',
+        details: { days: 30 }
+      })
+
       const { error, data } = await supabase.functions.invoke('cognito-sync', {
-        headers: { Authorization: `Bearer ${session.access_token}`, 'x-days': '30' },
-        method: 'GET'
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        body: { days: 30, action: 'bulk_sync' }
       })
       if (error) throw error
       const processed = (data as any)?.processed ?? 0
       const skipped = (data as any)?.skipped ?? 0
       const errors = (data as any)?.errors ?? 0
+
+      logError({
+        source: 'client',
+        code: 'cognito_sync_success',
+        message: 'CognitoForms sync completed',
+        details: { processed, skipped, errors, data }
+      })
+
       toast.success(`Sync completed • Processed: ${processed}, Skipped: ${skipped}, Errors: ${errors}`)
     } catch (error: any) {
+      logError({
+        source: 'client',
+        code: 'cognito_sync_error',
+        message: error?.message || 'Cognito sync failed',
+        details: { stack: error?.stack }
+      })
       toast.error(error?.message || 'Cognito sync failed')
     } finally {
       setIsSyncing(false)

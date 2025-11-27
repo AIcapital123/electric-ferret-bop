@@ -1,0 +1,139 @@
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+}
+
+type CreateTestAccountResponse = {
+  success: boolean
+  email?: string
+  password?: string
+  session?: {
+    access_token: string
+    refresh_token: string
+    expires_at?: number
+    token_type?: string
+    user?: unknown
+  }
+  error?: string
+}
+
+function json(payload: unknown, status = 200): Response {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  })
+}
+
+function randomInt(min: number, max: number) {
+  return Math.floor(Math.random() * (max - min + 1)) + min
+}
+
+function pick<T>(arr: T[]): T {
+  return arr[randomInt(0, arr.length - 1)]
+}
+
+function companyName(): string {
+  const prefixes = ["Go", "Blue", "Prime", "Vertex", "Apex", "Nova", "Bright", "Quantum", "Summit", "Atlas"]
+  const suffixes = ["Capital", "Solutions", "Holdings", "Industries", "Enterprises", "Group", "Partners", "Logistics", "Systems", "Dynamics"]
+  const legalTypes = ["LLC", "Inc", "Corp", "Ltd"]
+  return `${pick(prefixes)}${pick(suffixes)} ${pick(legalTypes)}`
+}
+
+function personName(): string {
+  const first = ["Alex", "Jordan", "Taylor", "Chris", "Morgan", "Sam", "Jamie", "Riley", "Avery", "Casey"]
+  const last = ["Smith", "Johnson", "Lee", "Brown", "Davis", "Miller", "Wilson", "Moore", "Taylor", "Anderson"]
+  return `${pick(first)} ${pick(last)}`
+}
+
+function loanType(): string {
+  return pick(["Business Loan", "Equipment Financing", "Working Capital", "Real Estate", "Merchant Cash Advance", "SBA Loan", "Line of Credit"])
+}
+
+function status(): string {
+  return pick(["New", "Contacted", "Qualified", "Documentation", "Underwriting", "Approved", "Funded", "Declined"])
+}
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders })
+  }
+
+  try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? ""
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? ""
+
+    if (!supabaseUrl || !serviceRoleKey || !anonKey) {
+      return json({ success: false, error: "Missing Supabase env vars" }, 500)
+    }
+
+    const admin = createClient(supabaseUrl, serviceRoleKey)
+    const publicClient = createClient(supabaseUrl, anonKey)
+
+    // Create unique test user
+    const email = `test-${Date.now()}@demo.gokapital.com`
+    const password = "TestAccount123!"
+
+    const { data: createdUser, error: createErr } = await admin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { full_name: "Demo User", source: "test_data" },
+    })
+
+    if (createErr || !createdUser.user) {
+      return json({ success: false, error: createErr?.message || "Failed to create user" }, 500)
+    }
+
+    const userId = createdUser.user.id
+
+    // Seed 50 deals
+    const rows = Array.from({ length: 50 }).map(() => ({
+      legal_company_name: companyName(),
+      client_name: personName(),
+      loan_amount_sought: randomInt(15000, 500000),
+      loan_type: loanType(),
+      status: status(),
+      source: "test_data",
+      user_id: userId,
+      date_submitted: new Date().toISOString().split("T")[0],
+      created_at: new Date().toISOString(),
+    }))
+
+    const { error: insertErr } = await admin.from("deals").insert(rows)
+    if (insertErr) {
+      return json({ success: false, error: insertErr.message || "Failed to insert deals" }, 500)
+    }
+
+    // Sign the user in to get session (access/refresh tokens)
+    const { data: signInData, error: signInErr } = await publicClient.auth.signInWithPassword({
+      email,
+      password,
+    })
+
+    if (signInErr || !signInData.session) {
+      return json({ success: true, email, password }, 200)
+    }
+
+    const sess = signInData.session
+    const response: CreateTestAccountResponse = {
+      success: true,
+      email,
+      password,
+      session: {
+        access_token: sess.access_token,
+        refresh_token: sess.refresh_token,
+        expires_at: (sess.expires_at as number | null) ?? undefined,
+        token_type: "bearer",
+        user: sess.user,
+      },
+    }
+    return json(response, 200)
+  } catch (e) {
+    console.error("create-test-account error:", e)
+    return json({ success: false, error: (e as Error).message }, 500)
+  }
+})

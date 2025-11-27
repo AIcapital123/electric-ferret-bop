@@ -6,12 +6,8 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-days',
 };
 
-const COGNITO_CONFIG = {
-  organizationId: '6f375664-c614-432c-849e-884e88423227',
-  integrationId: '2539ddc3-6ea3-49ce-88f4-e9156c1cab7e',
-  clientId: '3de3f830-cbc7-46e6-b96e-5f0167721830',
-  apiToken: 'eyJhbGciOiJIUzI1NiIsImtpZCI6Ijg4YmYzNWNmLWM3ODEtNDQ3ZC1hYzc5LWMyODczMjNkNzg3ZCIsInR5cCI6IkpXVCJ9.eyJvcmdhbml6YXRpb25JZCI6IjZmMzc1NjY0LWM2MTQtNDMyYy04NDllLTg4NGU4ODQyMzIyNyIsImludGVncmF0aW9uSWQiOiIyNTM5ZGRjMy02ZWEzLTQ5Y2UtODhmNC1lOTE1NmMxY2FiN2UiLCJjbGllbnRJZCI6IjNkZTNmODMwLWNiYzctNDZlNi1iOTZlLTVmMDE2NzcyMTgzMCIsImp0aSI6ImEyMTNjYWM1LTA1NDAtNGJjNS1iYjkyLTc1MTI1NmU4NzAxNCIsImlhdCI6MTc2NDI1MzIzMCwiaXNzIjoiaHR0cHM6Ly93d3cuY29nbml0b2Zvcm1zLmNvbS8iLCJhdWQiOiJhcGkifQ.uh0f0oHcImThsxut9i8BCv7go1hfXvXAt7uUCjhYvfY'
-};
+const COGNITO_API_KEY = Deno.env.get('COGNITO_API_KEY') ?? '';
+const COGNITO_ORG_ID = Deno.env.get('COGNITO_ORG_ID') ?? '';
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -80,11 +76,15 @@ serve(async (req) => {
       startDate.setDate(startDate.getDate() - (Number.isFinite(daysBack) ? daysBack : 30));
       console.log(`📅 Syncing entries since ${startDate.toISOString()} (${daysBack} days)`);
 
+      if (!COGNITO_API_KEY || !COGNITO_ORG_ID) {
+        return json({ success: false, error: 'Missing Cognito env vars' }, 500);
+      }
+
       const formsResponse = await fetch(
-        `https://www.cognitoforms.com/api/organizations/${COGNITO_CONFIG.organizationId}/forms`,
+        `https://www.cognitoforms.com/api/organizations/${COGNITO_ORG_ID}/forms`,
         {
           headers: {
-            Authorization: `Bearer ${COGNITO_CONFIG.apiToken}`,
+            Authorization: `Bearer ${COGNITO_API_KEY}`,
             'Content-Type': 'application/json',
           },
         }
@@ -107,10 +107,10 @@ serve(async (req) => {
         console.log(`📝 Processing form: ${form.Name} (ID: ${form.Id})`);
 
         const entriesResponse = await fetch(
-          `https://www.cognitoforms.com/api/organizations/${COGNITO_CONFIG.organizationId}/forms/${form.Id}/entries?filter=DateCreated ge ${startDate.toISOString()}&orderBy=DateCreated desc`,
+          `https://www.cognitoforms.com/api/organizations/${COGNITO_ORG_ID}/forms/${form.Id}/entries?filter=DateCreated ge ${startDate.toISOString()}&orderBy=DateCreated desc`,
           {
             headers: {
-              Authorization: `Bearer ${COGNITO_CONFIG.apiToken}`,
+              Authorization: `Bearer ${COGNITO_API_KEY}`,
               'Content-Type': 'application/json',
             },
           }

@@ -4,11 +4,51 @@ import { Auth } from '@supabase/auth-ui-react'
 import { ThemeSupa } from '@supabase/auth-ui-shared'
 import { supabase } from '@/lib/supabase'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { toast } from 'sonner'
 
 export default function Login() {
   const navigate = useNavigate()
   const location = useLocation()
   const redirectTo = (location.state as any)?.from || '/'
+
+  const handleUseTestAccount = async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke('create-test-account', {
+        method: 'POST',
+      })
+      if (error) {
+        toast.error(error.message || 'Failed to create test account')
+        return
+      }
+      const resp = data as {
+        success: boolean
+        email?: string
+        password?: string
+        session?: { access_token: string; refresh_token: string }
+        error?: string
+      }
+      if (!resp.success || !resp.email || !resp.password) {
+        toast.error(resp.error || 'Failed to create test account')
+        return
+      }
+
+      // Prefer direct sign in via credentials to ensure local session is set.
+      const { error: signInErr } = await supabase.auth.signInWithPassword({
+        email: resp.email,
+        password: resp.password,
+      })
+      if (signInErr) {
+        toast.error(signInErr.message || 'Sign-in failed')
+        return
+      }
+
+      toast.success('Signed in with Test Account')
+      navigate(redirectTo, { replace: true })
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to use test account')
+    }
+  }
 
   useEffect(() => {
     const sync = async () => {
@@ -32,6 +72,11 @@ export default function Login() {
           <CardTitle className="text-center">GoKapital CRM Sign In</CardTitle>
         </CardHeader>
         <CardContent>
+          <div className="mb-3 flex justify-center">
+            <Button variant="secondary" onClick={handleUseTestAccount}>
+              Use Test Account
+            </Button>
+          </div>
           <Auth
             supabaseClient={supabase}
             providers={['google']}

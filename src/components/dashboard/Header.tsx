@@ -25,7 +25,7 @@ export default function Header({ syncing, onSync, onRefresh, onSignOut }: Header
             className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-2 rounded-md text-sm font-medium flex items-center"
           >
             <span className="mr-2">📧</span>
-            {syncing ? 'Syncing...' : 'Sync Emails'}
+            {syncing ? 'Syncing...' : 'Sync CognitoForms'}
           </button>
           <button
             onClick={onRefresh}

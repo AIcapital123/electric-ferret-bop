@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-days',
 };
 
 const COGNITO_CONFIG = {
@@ -29,11 +29,12 @@ serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Verify user authentication for GET/POST
+    // Verify user authentication
     const authHeader = req.headers.get('Authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return json({ success: false, error: 'No authorization header' }, 401);
     }
+
     const token = authHeader.replace('Bearer ', '');
     const { data: { user }, error: userError } = await supabase.auth.getUser(token);
     if (userError || !user) {
@@ -42,21 +43,19 @@ serve(async (req) => {
 
     console.log('✅ User authenticated:', user.email);
 
+    // Webhook (POST)
     if (req.method === 'POST') {
-      // Webhook: receives an entry JSON
       const submission = await req.json();
       console.log('📥 Webhook received:', submission);
 
-      const dealData = parseCognitoSubmission(submission, user.id);
+      const dealData = parseCognitoSubmissionEnhanced(submission, user.id);
 
-      // Prevent duplicates by cognito_entry_id
       if (dealData.cognito_entry_id) {
         const { data: existing } = await supabase
           .from('deals')
           .select('id')
           .eq('cognito_entry_id', dealData.cognito_entry_id)
           .limit(1);
-
         if (Array.isArray(existing) && existing.length > 0) {
           return json({ success: true, message: 'Entry already exists', deal_id: existing[0].id }, 200);
         }
@@ -72,9 +71,14 @@ serve(async (req) => {
       return json({ success: true, deal_id: data?.[0]?.id }, 200);
     }
 
+    // Manual sync (GET) with default 30 days; supports ?days and x-days header
     if (req.method === 'GET') {
-      // Manual sync across organization forms (last 30 days)
-      console.log('🔄 Manual sync requested');
+      const url = new URL(req.url);
+      const headerDays = req.headers.get('x-days') || undefined;
+      const daysBack = parseInt(url.searchParams.get('days') || headerDays || '30');
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - (Number.isFinite(daysBack) ? daysBack : 30));
+      console.log(`📅 Syncing entries since ${startDate.toISOString()} (${daysBack} days)`);
 
       const formsResponse = await fetch(
         `https://www.cognitoforms.com/api/organizations/${COGNITO_CONFIG.organizationId}/forms`,
@@ -97,15 +101,13 @@ serve(async (req) => {
 
       let totalProcessed = 0;
       let totalSkipped = 0;
-
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      let totalErrors = 0;
 
       for (const form of forms) {
         console.log(`📝 Processing form: ${form.Name} (ID: ${form.Id})`);
 
         const entriesResponse = await fetch(
-          `https://www.cognitoforms.com/api/organizations/${COGNITO_CONFIG.organizationId}/forms/${form.Id}/entries?filter=DateCreated ge ${thirtyDaysAgo.toISOString()}`,
+          `https://www.cognitoforms.com/api/organizations/${COGNITO_CONFIG.organizationId}/forms/${form.Id}/entries?filter=DateCreated ge ${startDate.toISOString()}&orderBy=DateCreated desc`,
           {
             headers: {
               Authorization: `Bearer ${COGNITO_CONFIG.apiToken}`,
@@ -115,7 +117,8 @@ serve(async (req) => {
         );
 
         if (!entriesResponse.ok) {
-          console.error(`❌ Error fetching entries for form ${form.Id}`);
+          console.error(`❌ Error fetching entries for form ${form.Id}: ${entriesResponse.status}`);
+          totalErrors++;
           continue;
         }
 
@@ -124,7 +127,6 @@ serve(async (req) => {
 
         for (const entry of entries) {
           try {
-            // Duplicate check
             const { data: existing } = await supabase
               .from('deals')
               .select('id')
@@ -136,24 +138,32 @@ serve(async (req) => {
               continue;
             }
 
-            const dealData = parseCognitoSubmission(entry, user.id, form);
+            const dealData = parseCognitoSubmissionEnhanced(entry, user.id, form);
             const { error } = await supabase.from('deals').insert(dealData);
             if (error) {
               console.error('❌ Insert error:', error);
-              totalSkipped++;
+              totalErrors++;
             } else {
               totalProcessed++;
               console.log('✅ Processed:', dealData.legal_company_name);
             }
           } catch (entryError) {
             console.error('❌ Error processing entry:', entryError);
-            totalSkipped++;
+            totalErrors++;
           }
         }
       }
 
-      console.log(`✅ Sync complete: ${totalProcessed} new, ${totalSkipped} skipped`);
-      return json({ success: true, processed: totalProcessed, skipped: totalSkipped, forms_checked: forms.length }, 200);
+      console.log(`✅ Sync complete: ${totalProcessed} new, ${totalSkipped} skipped, ${totalErrors} errors`);
+      return json({
+        success: true,
+        processed: totalProcessed,
+        skipped: totalSkipped,
+        errors: totalErrors,
+        forms_checked: forms.length,
+        date_range_days: daysBack,
+        sync_date: new Date().toISOString(),
+      }, 200);
     }
 
     return json({ success: false, error: 'Method not allowed' }, 405);
@@ -170,25 +180,29 @@ function json(payload: unknown, status = 200): Response {
   });
 }
 
-function parseCognitoSubmission(entry: any, userId: string, form?: any) {
-  console.log('🔍 Parsing entry:', entry.Number || entry.Id);
-
-  const fieldData = extractFieldData(entry);
+// Enhanced parsing while preserving existing schema fields and status casing
+function parseCognitoSubmissionEnhanced(entry: any, userId: string, form?: any) {
+  const fieldData = extractComprehensiveFieldData(entry);
+  const status = determineInitialStatus(fieldData);
+  const loanType = determineLoanType(fieldData, entry, form);
+  const clientName = extractClientName(fieldData, entry);
 
   const createdIso = new Date(entry.DateCreated || entry.DateSubmitted || Date.now()).toISOString();
 
-  // Prepare payload aligned with existing deals schema
-  const payload = {
+  return {
     cognito_entry_id: entry.Id ?? null,
     cognito_entry_number: entry.Number ?? null,
     cognito_form_id: form?.Id ?? entry.FormId ?? null,
 
     legal_company_name: fieldData.companyName || `Company ${entry.Number || entry.Id}`,
+    client_name: clientName || null,
     client_email: fieldData.email || null,
-    client_phone: fieldData.phone || null,
+    client_phone: cleanPhoneNumber(fieldData.phone),
+
+    loan_type: loanType,
     loan_amount_sought: fieldData.loanAmount || 0,
 
-    status: 'New',
+    status, // Title Case statuses to match existing data
     source: 'CognitoForms',
 
     created_at: createdIso,
@@ -198,75 +212,144 @@ function parseCognitoSubmission(entry: any, userId: string, form?: any) {
       cognito_entry_number: entry.Number,
       source: 'cognitoforms_api',
       parsed_fields: fieldData,
+      loan_type: loanType,
+      sync_date: new Date().toISOString(),
     }),
   };
-
-  return payload;
 }
 
-function extractFieldData(entry: any) {
-  const data = {
-    companyName: null as string | null,
-    email: null as string | null,
-    phone: null as string | null,
-    loanAmount: 0 as number,
+function extractComprehensiveFieldData(entry: any) {
+  const data: {
+    companyName: string | null;
+    email: string | null;
+    phone: string | null;
+    loanAmount: number;
+    businessType?: string | null;
+    industry?: string | null;
+    timeInBusiness?: string | null;
+    monthlyRevenue?: number | null;
+    creditScore?: number | null;
+    purpose?: string | null;
+    firstName?: string | null;
+    lastName?: string | null;
+  } = {
+    companyName: null,
+    email: null,
+    phone: null,
+    loanAmount: 0,
   };
 
-  const fields = entry.Fields || entry;
-  const companyFields = [
-    'BusinessName', 'CompanyName', 'LegalBusinessName', 'Company', 'Business',
-    'OrganizationName', 'EntityName', 'Name', 'ClientName',
-  ];
-  const emailFields = ['Email', 'EmailAddress', 'ContactEmail', 'BusinessEmail', 'PrimaryEmail'];
-  const phoneFields = ['Phone', 'PhoneNumber', 'ContactPhone', 'BusinessPhone', 'PrimaryPhone', 'Mobile', 'CellPhone', 'Telephone'];
-  const amountFields = ['LoanAmount', 'FundingAmount', 'AmountRequested', 'RequestedAmount', 'AmountNeeded', 'LoanRequest', 'CapitalNeeded', 'FinancingAmount', 'Amount'];
+  const searchLocations = [entry.Fields || {}, entry.Data || {}, entry, entry.FormData || {}];
 
-  const searchLocations = [fields, entry, entry.Data || {}];
+  const mapping: Record<string, string[]> = {
+    companyName: ['BusinessName','CompanyName','LegalBusinessName','Company','Business','OrganizationName','EntityName','Name','ClientName','BusinessLegalName','DBAName','TradeName','CorporateName','LLCName','PartnershipName'],
+    email: ['Email','EmailAddress','ContactEmail','BusinessEmail','PrimaryEmail','OwnerEmail','ApplicantEmail','MainEmail','WorkEmail'],
+    phone: ['Phone','PhoneNumber','ContactPhone','BusinessPhone','PrimaryPhone','Mobile','CellPhone','Telephone','WorkPhone','OfficePhone','MainPhone'],
+    loanAmount: ['LoanAmount','FundingAmount','AmountRequested','RequestedAmount','AmountNeeded','LoanRequest','CapitalNeeded','FinancingAmount','Amount','FundingNeeded','LoanSize','CreditAmount','AdvanceAmount'],
+    firstName: ['FirstName','First','FName','OwnerFirstName','ApplicantFirstName','ContactFirstName','PrimaryFirstName'],
+    lastName: ['LastName','Last','LName','OwnerLastName','ApplicantLastName','ContactLastName','PrimaryLastName','Surname'],
+    purpose: ['Purpose','LoanPurpose','FundingPurpose'],
+    businessType: ['BusinessType','EntityType','BusinessStructure','LegalStructure','CompanyType','OrganizationType'],
+    industry: ['Industry','BusinessIndustry','Sector','BusinessSector','IndustryType','BusinessCategory','NAICS','SIC'],
+    monthlyRevenue: ['MonthlyRevenue','MonthlyIncome','Revenue','MonthlyGrossRevenue','AverageMonthlyRevenue','MonthlyGrossIncome','MonthlyDeposits'],
+    timeInBusiness: ['TimeInBusiness','YearsInBusiness','BusinessAge','YearsOperating','MonthsInBusiness','BusinessDuration','OperatingYears'],
+  };
 
-  for (const location of searchLocations) {
-    if (!location || typeof location !== 'object') continue;
+  for (const loc of searchLocations) {
+    if (!loc || typeof loc !== 'object') continue;
 
-    if (!data.companyName) {
-      for (const field of companyFields) {
-        if (location[field] && typeof location[field] === 'string') {
-          data.companyName = String(location[field]).trim();
-          break;
-        }
-      }
-    }
+    for (const [key, fields] of Object.entries(mapping)) {
+      if ((data as any)[key]) continue;
+      for (const f of fields) {
+        const v = (loc as any)[f];
+        if (v === undefined || v === null) continue;
 
-    if (!data.email) {
-      for (const field of emailFields) {
-        if (location[field] && typeof location[field] === 'string' && String(location[field]).includes('@')) {
-          data.email = String(location[field]).trim();
-          break;
-        }
-      }
-    }
-
-    if (!data.phone) {
-      for (const field of phoneFields) {
-        if (location[field] && typeof location[field] === 'string') {
-          data.phone = String(location[field]).trim();
-          break;
-        }
-      }
-    }
-
-    if (!data.loanAmount) {
-      for (const field of amountFields) {
-        if (location[field] !== undefined && location[field] !== null) {
-          const amt = parseCurrency(location[field]);
-          if (amt > 0) {
-            data.loanAmount = amt;
-            break;
-          }
+        if (key === 'loanAmount') {
+          const n = parseCurrency(v);
+          if (n > 0) { (data as any)[key] = n; break; }
+        } else if (key === 'email') {
+          if (typeof v === 'string' && v.includes('@')) { (data as any)[key] = v.trim().toLowerCase(); break; }
+        } else if (key === 'phone') {
+          if (typeof v === 'string' && /\d/.test(v)) { (data as any)[key] = v.trim(); break; }
+        } else if (typeof v === 'string' && v.trim()) {
+          (data as any)[key] = v.trim(); break;
+        } else if (typeof v === 'number' && v > 0) {
+          (data as any)[key] = v; break;
         }
       }
     }
   }
 
   return data;
+}
+
+function determineInitialStatus(fieldData: any): string {
+  let score = 0;
+  if (fieldData.companyName) score += 2;
+  if (fieldData.email) score += 2;
+  if (fieldData.phone) score += 2;
+  if (fieldData.loanAmount > 0) score += 3;
+  if (fieldData.monthlyRevenue) score += 1;
+  if (fieldData.timeInBusiness) score += 1;
+  if (fieldData.industry) score += 1;
+
+  if (score >= 8) return 'Qualified';
+  if (score >= 6) return 'Contacted';
+  return 'New';
+}
+
+function determineLoanType(fieldData: any, entry: any, form?: any): string {
+  const map: Record<string, string[]> = {
+    'Equipment Financing': ['equipment','machinery','vehicle','truck','construction'],
+    'Working Capital': ['working capital','inventory','payroll','operating'],
+    'Real Estate': ['real estate','property','building','commercial property'],
+    'SBA Loan': ['sba','small business administration'],
+    'Merchant Cash Advance': ['mca','merchant','cash advance','daily sales'],
+    'Line of Credit': ['line of credit','loc','revolving credit'],
+    'Business Loan': ['business loan','term loan','general business'],
+  };
+
+  if (form?.Name) {
+    const name = String(form.Name).toLowerCase();
+    for (const [loanType, keywords] of Object.entries(map)) {
+      if (keywords.some(k => name.includes(k))) return loanType;
+    }
+  }
+
+  const searchText = [
+    fieldData.purpose,
+    fieldData.businessType,
+    fieldData.industry,
+    entry.Purpose,
+    entry.LoanPurpose,
+    entry.FundingPurpose,
+  ].filter(Boolean).join(' ').toLowerCase();
+
+  for (const [loanType, keywords] of Object.entries(map)) {
+    if (keywords.some(k => searchText.includes(k))) return loanType;
+  }
+
+  if (fieldData.loanAmount > 500000) return 'Real Estate';
+  if (fieldData.loanAmount < 100000) return 'Working Capital';
+  return 'Business Loan';
+}
+
+function extractClientName(fieldData: any, _entry: any): string | null {
+  if (fieldData.firstName && fieldData.lastName) return `${fieldData.firstName} ${fieldData.lastName}`;
+  if (fieldData.firstName) return fieldData.firstName;
+  if (fieldData.email) {
+    const base = String(fieldData.email).split('@')[0];
+    return base.replace(/[._]/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
+  }
+  return null;
+}
+
+function cleanPhoneNumber(phone: string | null): string | null {
+  if (!phone) return null;
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length === 10) return `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`;
+  if (digits.length === 11 && digits.startsWith('1')) return `+1 (${digits.slice(1,4)}) ${digits.slice(4,7)}-${digits.slice(7)}`;
+  return phone.trim();
 }
 
 function parseCurrency(value: any): number {

@@ -72,27 +72,28 @@ export default function Dashboard() {
     }
   };
 
-  const syncGmail = async () => {
+  const syncCognitoForms = async () => {
     setSyncing(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Not authenticated');
 
-      const { data, error } = await supabase.functions.invoke('sync-gmail', {
+      const { data, error } = await supabase.functions.invoke('cognito-sync', {
         headers: { Authorization: `Bearer ${session.access_token}` },
+        method: 'GET'
       });
 
       if (error) throw error;
 
       const now = new Date().toLocaleString();
       setLastSync(now);
-      localStorage.setItem('lastGmailSync', now);
+      localStorage.setItem('lastCognitoSync', now);
 
-      alert(`Sync completed: ${data.processed} new deals, ${data.skipped} skipped`);
+      alert(`Sync completed: ${data.processed} new deals, ${data.skipped} skipped from ${data.forms_checked} forms`);
       fetchDeals();
-    } catch (error: any) {
+    } catch (error) {
       console.error('Sync error:', error);
-      alert('Sync failed: ' + (error?.message || 'Unknown error'));
+      alert('Sync failed: ' + (error as Error).message);
     } finally {
       setSyncing(false);
     }
@@ -150,7 +151,7 @@ export default function Dashboard() {
             </div>
             <div className="flex space-x-4">
               <button
-                onClick={syncGmail}
+                onClick={syncCognitoForms}
                 disabled={syncing}
                 className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-2 rounded-md font-medium flex items-center"
               >
@@ -160,7 +161,7 @@ export default function Dashboard() {
                     Syncing...
                   </>
                 ) : (
-                  'Sync Gmail'
+                  'Sync CognitoForms'
                 )}
               </button>
               <button

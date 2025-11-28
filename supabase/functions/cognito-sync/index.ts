@@ -139,7 +139,7 @@ async function fetchJSON(url: string, apiKey: string) {
   const res = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
-    throw new Error(data?.Message || data?.error || `HTTP ${res.status}`)
+    throw new Error((data && (data.Message || data.error)) || `HTTP ${res.status}`)
   }
   return data
 }
@@ -155,15 +155,35 @@ function slugify(s: string) {
 async function resolveOrgId(provided: string, apiKey: string): Promise<string | null> {
   if (!provided) return null
   if (isGuidLike(provided)) return provided
-  // Try to resolve by name/slug
+  // Try to resolve by name/slug via the Organizations endpoint (may not be allowed for integration tokens)
   const orgsUrl = `https://www.cognitoforms.com/api/v1/organizations`
   const orgs = await fetchJSON(orgsUrl, apiKey) as CognitoOrg[]
   if (!Array.isArray(orgs)) return null
   const target = slugify(provided)
-  // match by exact Name or slug of Name
   const found = orgs.find(o => o.Name === provided) 
     || orgs.find(o => slugify(o.Name) === target)
   return found?.Id ?? null
+}
+
+// Decode base64url without verifying (we only need organizationId claim)
+function base64UrlDecode(str: string): string {
+  const pad = '='.repeat((4 - (str.length % 4)) % 4)
+  const b64 = str.replace(/-/g, '+').replace(/_/g, '/') + pad
+  return atob(b64)
+}
+
+function getOrgIdFromJwt(token: string | null | undefined): string | null {
+  if (!token) return null
+  const parts = token.split('.')
+  if (parts.length < 2) return null
+  try {
+    const payloadJson = base64UrlDecode(parts[1])
+    const payload = JSON.parse(payloadJson) as { organizationId?: string }
+    const id = payload?.organizationId
+    return id && isGuidLike(id) ? id : null
+  } catch {
+    return null
+  }
 }
 
 serve(async (req) => {
@@ -186,10 +206,20 @@ serve(async (req) => {
       return json({ success: false, error: "CognitoForms secret missing (COGNITO_API_KEY or COGNITO_API_TOKEN)" }, 500)
     }
 
-    const orgId = await resolveOrgId(orgIdRaw, apiKey)
+    // Prefer organizationId from integration token; fall back to provided GUID; then name/slug resolution
+    const orgFromToken = getOrgIdFromJwt(apiKey)
+    let orgId: string | null = null
+    if (orgFromToken) {
+      orgId = orgFromToken
+    } else if (isGuidLike(orgIdRaw)) {
+      orgId = orgIdRaw
+    } else {
+      orgId = await resolveOrgId(orgIdRaw, apiKey)
+    }
+
     if (!orgId) {
-      console.error("cognito-sync: Unable to resolve organization identifier", { provided: orgIdRaw })
-      return json({ success: false, error: "Invalid CognitoForms organization identifier (set COGNITO_ORG_ID to GUID or valid organization name)" }, 400)
+      console.error("cognito-sync: Unable to resolve organization identifier", { provided: orgIdRaw, fromToken: !!orgFromToken })
+      return json({ success: false, error: "Invalid CognitoForms organization identifier (token lacks organizationId and name/slug could not be resolved)" }, 400)
     }
 
     const supabase = createClient(supabaseUrl, serviceRoleKey)

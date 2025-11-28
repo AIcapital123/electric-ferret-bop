@@ -12,7 +12,7 @@ type SyncBody = {
   startDate?: string
   endDate?: string
   limit?: number
-  action?: "bulk_sync" | "webhook" | string
+  action?: "bulk_sync" | "webhook" | "diagnostic" | string
 }
 
 type CognitoForm = {
@@ -206,25 +206,51 @@ serve(async (req) => {
       return json({ success: false, error: "CognitoForms secret missing (COGNITO_API_KEY or COGNITO_API_TOKEN)" }, 500)
     }
 
+    const supabase = createClient(supabaseUrl, serviceRoleKey)
+    const body: SyncBody = await req.json().catch(() => ({}))
+    const limit = Math.min(Math.max(Number(body.limit ?? 100), 1), 500)
+
     // Prefer organizationId from integration token; fall back to provided GUID; then name/slug resolution
     const orgFromToken = getOrgIdFromJwt(apiKey)
     let orgId: string | null = null
+    let orgSource: "token_claim" | "env_guid" | "resolved_name" | "unknown" = "unknown"
+
     if (orgFromToken) {
       orgId = orgFromToken
+      orgSource = "token_claim"
     } else if (isGuidLike(orgIdRaw)) {
       orgId = orgIdRaw
+      orgSource = "env_guid"
     } else {
       orgId = await resolveOrgId(orgIdRaw, apiKey)
+      orgSource = orgId ? "resolved_name" : "unknown"
     }
+
+    // Log diagnostic info (no secrets)
+    console.info("cognito-sync: resolved CognitoForms organization", {
+      orgId,
+      orgSource,
+      hasOrgInToken: !!orgFromToken,
+    })
 
     if (!orgId) {
       console.error("cognito-sync: Unable to resolve organization identifier", { provided: orgIdRaw, fromToken: !!orgFromToken })
       return json({ success: false, error: "Invalid CognitoForms organization identifier (token lacks organizationId and name/slug could not be resolved)" }, 400)
     }
 
-    const supabase = createClient(supabaseUrl, serviceRoleKey)
-    const body: SyncBody = await req.json().catch(() => ({}))
-    const limit = Math.min(Math.max(Number(body.limit ?? 100), 1), 500)
+    // If diagnostic mode, return org info and forms count without running a full sync
+    if (body.action === "diagnostic") {
+      const formsUrl = `https://www.cognitoforms.com/api/v1/organizations/${orgId}/forms`
+      const forms: CognitoForm[] = await fetchJSON(formsUrl, apiKey)
+      return json({
+        success: true,
+        diagnostic: true,
+        orgId,
+        orgSource,
+        hasOrgInToken: !!orgFromToken,
+        formsCount: Array.isArray(forms) ? forms.length : 0,
+      }, 200)
+    }
 
     const formsUrl = `https://www.cognitoforms.com/api/v1/organizations/${orgId}/forms`
     const forms: CognitoForm[] = await fetchJSON(formsUrl, apiKey)

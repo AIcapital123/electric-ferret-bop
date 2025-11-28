@@ -244,9 +244,11 @@ serve(async (req) => {
     const orgFromToken = getOrgIdFromJwt(apiKey)
     const envGuid = isGuidLike(orgIdRawEnv) ? orgIdRawEnv : null
     const resolvedName = envGuid ? null : await resolveOrgIdByNameOrSlug(orgIdRawEnv, apiKey)
+    const explicitResolved = explicitOrgId && !isGuidLike(explicitOrgId) ? (await resolveOrgIdByNameOrSlug(explicitOrgId, apiKey)) : null
 
-    const candidates: Array<{ id: string, source: "explicit" | "token_claim" | "env_guid" | "resolved_name" }> = []
+    const candidates: Array<{ id: string, source: "explicit" | "explicit_resolved_name" | "token_claim" | "env_guid" | "resolved_name" }> = []
     if (explicitOrgId && isGuidLike(explicitOrgId)) candidates.push({ id: explicitOrgId, source: "explicit" })
+    if (explicitResolved) candidates.push({ id: explicitResolved, source: "explicit_resolved_name" })
     if (orgFromToken) candidates.push({ id: orgFromToken, source: "token_claim" })
     if (envGuid) candidates.push({ id: envGuid, source: "env_guid" })
     if (resolvedName) candidates.push({ id: resolvedName, source: "resolved_name" })
@@ -258,7 +260,7 @@ serve(async (req) => {
 
     // Try each candidate until forms listing succeeds
     let orgId: string | null = null
-    let orgSource: "explicit" | "token_claim" | "env_guid" | "resolved_name" | "unknown" = "unknown"
+    let orgSource: "explicit" | "explicit_resolved_name" | "token_claim" | "env_guid" | "resolved_name" | "discover" | "unknown" = "unknown"
     let forms: CognitoForm[] = []
 
     for (const c of candidates) {
@@ -273,7 +275,35 @@ serve(async (req) => {
         }
       } catch (e) {
         console.warn("cognito-sync: Failed to list forms for candidate orgId", { candidate: c, error: (e as Error).message })
-        // continue to next candidate
+      }
+    }
+
+    // FINAL FALLBACK: discover an accessible organization by listing all orgs and testing forms
+    let orgsCount: number | undefined = undefined
+    if (!orgId) {
+      try {
+        const orgsUrl = `https://www.cognitoforms.com/api/v1/organizations`
+        const orgs = await fetchJSON(orgsUrl, apiKey) as CognitoOrg[]
+        if (Array.isArray(orgs)) {
+          orgsCount = orgs.length
+          for (const o of orgs) {
+            try {
+              const url = `https://www.cognitoforms.com/api/v1/organizations/${o.Id}/forms`
+              const fetched = await fetchJSON(url, apiKey) as CognitoForm[]
+              if (Array.isArray(fetched)) {
+                orgId = o.Id
+                orgSource = "discover"
+                forms = fetched
+                console.info("cognito-sync: discovered accessible org via listing", { orgId, orgName: o.Name })
+                break
+              }
+            } catch (e) {
+              // continue to next org
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("cognito-sync: organization listing not permitted or failed", { error: (e as Error).message })
       }
     }
 
@@ -292,6 +322,7 @@ serve(async (req) => {
         details: {
           hasOrgInToken: !!orgFromToken,
           candidates: candidates.map(c => c.source),
+          orgsCount
         }
       }, 404)
     }
@@ -305,6 +336,7 @@ serve(async (req) => {
         orgSource,
         hasOrgInToken: !!orgFromToken,
         formsCount: Array.isArray(forms) ? forms.length : 0,
+        orgsCount
       }, 200)
     }
 

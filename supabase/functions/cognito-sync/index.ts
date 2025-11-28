@@ -8,11 +8,10 @@ const corsHeaders = {
 }
 
 type SyncBody = {
-  // Optional filters
-  formIds?: string[]        // limit to specific form IDs
+  formIds?: string[]        // optional: limit to specific form IDs
   startDate?: string        // YYYY-MM-DD
   endDate?: string          // YYYY-MM-DD
-  limit?: number            // max entries per form
+  limit?: number            // max entries per form (1-500)
   action?: "bulk_sync" | "webhook" | string
 }
 
@@ -60,7 +59,6 @@ function pickEntry(entry: CognitoEntry, keys: string[]): any {
 }
 
 function parseDealFromEntry(entry: CognitoEntry, form: CognitoForm) {
-  // Extract common fields from flexible CognitoForms schemas
   const legal_company_name = firstNonEmpty(
     pickEntry(entry, ["BusinessName","CompanyName","LegalBusinessName","Company","Business","OrganizationName","EntityName","CorporateName","LLCName","TradeName","DBAName"]),
     pickEntry(entry, ["Business","Company"])
@@ -91,7 +89,6 @@ function parseDealFromEntry(entry: CognitoEntry, form: CognitoForm) {
     pickEntry(entry, ["LoanAmount","FundingAmount","AmountRequested","RequestedAmount","AmountNeeded","LoanRequest","CapitalNeeded","FinancingAmount","Amount"])
   ))
 
-  // Determine loan type heuristically from form name or known purpose fields
   const purpose = firstNonEmpty(pickEntry(entry, ["Purpose","LoanPurpose","FundingPurpose"]))
   const context = [purpose, form?.Name].filter(Boolean).join(" ").toLowerCase()
   let loan_type = "Business Loan"
@@ -104,7 +101,7 @@ function parseDealFromEntry(entry: CognitoEntry, form: CognitoForm) {
   else if (/loc|line\s+of\s+credit/.test(context)) loan_type = "Line of Credit (LOC)"
 
   const date_submitted = (() => {
-    const raw = firstNonEmpty(entry.DateCreated, entry.SubmissionDate, entry.SubmittedAt)
+    const raw = firstNonEmpty(entry.DateCreated, (entry as any).SubmissionDate, (entry as any).SubmittedAt)
     if (raw) {
       const d = new Date(String(raw))
       if (!isNaN(d.getTime())) return d.toISOString().split("T")[0]
@@ -112,8 +109,7 @@ function parseDealFromEntry(entry: CognitoEntry, form: CognitoForm) {
     return new Date().toISOString().split("T")[0]
   })()
 
-  // IDs
-  const cognito_entry_id = String(firstNonEmpty(entry.EntryId, entry.EntryNumber, entry.id, entry.Id) || "")
+  const cognito_entry_id = String(firstNonEmpty(entry.EntryId, entry.EntryNumber, (entry as any).id, (entry as any).Id) || "")
   const form_id = form?.Id ? String(form.Id) : null
   const form_name = form?.Name || null
 
@@ -135,9 +131,7 @@ function parseDealFromEntry(entry: CognitoEntry, form: CognitoForm) {
 }
 
 async function fetchJSON(url: string, apiKey: string) {
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${apiKey}` },
-  })
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
     throw new Error(data?.Message || data?.error || `HTTP ${res.status}`)
@@ -151,23 +145,25 @@ serve(async (req) => {
   }
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? ""
-    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
-    const apiKey = Deno.env.get("COGNITO_API_KEY") ?? ""
-    const orgId = Deno.env.get("COGNITO_ORG_ID") ?? ""
+    const supabaseUrl = (Deno.env.get("SUPABASE_URL") ?? "").trim()
+    const serviceRoleKey = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim()
+    // Accept either COGNITO_API_KEY or COGNITO_API_TOKEN
+    const apiKey = ((Deno.env.get("COGNITO_API_KEY") ?? Deno.env.get("COGNITO_API_TOKEN") ?? "") as string).trim()
+    const orgId = ((Deno.env.get("COGNITO_ORG_ID") ?? "") as string).trim()
 
     if (!supabaseUrl || !serviceRoleKey) {
-      return json({ success: false, error: "Supabase env not set" }, 500)
+      console.error("cognito-sync: Missing Supabase env SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY")
+      return json({ success: false, error: "Supabase env not set (SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing)" }, 500)
     }
     if (!apiKey || !orgId) {
-      return json({ success: false, error: "CognitoForms secrets missing" }, 500)
+      console.error("cognito-sync: Missing CognitoForms secrets", { hasApiKey: !!apiKey, hasOrgId: !!orgId })
+      return json({ success: false, error: "CognitoForms secrets missing (COGNITO_API_KEY/COGNITO_API_TOKEN or COGNITO_ORG_ID)" }, 500)
     }
 
     const supabase = createClient(supabaseUrl, serviceRoleKey)
     const body: SyncBody = await req.json().catch(() => ({}))
     const limit = Math.min(Math.max(Number(body.limit ?? 100), 1), 500)
 
-    // Get forms
     const formsUrl = `https://www.cognitoforms.com/api/v1/organizations/${orgId}/forms`
     const forms: CognitoForm[] = await fetchJSON(formsUrl, apiKey)
 
@@ -179,19 +175,17 @@ serve(async (req) => {
     let updated = 0
     let processed = 0
 
-    // Date filters (optional)
     const start = body.startDate ? new Date(body.startDate) : null
     const end = body.endDate ? new Date(body.endDate) : null
 
     for (const form of selectedForms) {
-      // Fetch entries for each form
       const entriesUrlBase = `https://www.cognitoforms.com/api/v1/organizations/${orgId}/forms/${form.Id}/entries`
       const entriesUrl = `${entriesUrlBase}?limit=${limit}`
       const entries: CognitoEntry[] = await fetchJSON(entriesUrl, apiKey)
 
       for (const entry of entries) {
         processed++
-        // Optional date filter
+
         if (start || end) {
           const when = entry.DateCreated ? new Date(String(entry.DateCreated)) : null
           if (when) {
@@ -201,12 +195,8 @@ serve(async (req) => {
         }
 
         const parsed = parseDealFromEntry(entry, form)
-        if (!parsed.legal_company_name) {
-          // Skip entries without company
-          continue
-        }
+        if (!parsed.legal_company_name) continue
 
-        // Deduplicate by cognito_entry_id + form_id
         const { data: existing } = await supabase
           .from("deals")
           .select("id, legal_company_name, loan_amount, loan_type, status, source, cognito_entry_id, form_id")
@@ -216,13 +206,11 @@ serve(async (req) => {
 
         if (Array.isArray(existing) && existing.length > 0) {
           const target = existing[0]
-          // Merge minimal updates (avoid overwriting non-empty with empty)
           const updates: Record<string, any> = {}
           const fields = ["legal_company_name","client_name","email","phone","loan_amount","loan_type","status","source","date_submitted","form_name","form_data"]
           for (const f of fields) {
             const v = (parsed as any)[f]
             if (v !== undefined && v !== null && String(v) !== "" ) {
-              // Only update if value changed
               if (String((target as any)[f] ?? "") !== String(v)) {
                 updates[f] = v
               }

@@ -86,7 +86,7 @@ serve(async (req) => {
     const publicClient = anonKey ? createClient(supabaseUrl, anonKey) : null
 
     // Create unique test user
-    const email = `demo-${Date.now()}@test.gokapital-crm.com`
+    const email = `demo.${Date.now()}@example.com`
     const password = "TestAccount123!"
 
     const { data: createdUser, error: createErr } = await admin.auth.admin.createUser({

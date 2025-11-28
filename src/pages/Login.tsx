@@ -54,7 +54,7 @@ export default function Login() {
       }
 
       // Fallback: client-side sign up & sign in (only if previous steps failed)
-      const email = `demo-${Date.now()}@test.gokapital-crm.com`
+      const email = `demo.${Date.now()}@example.com`
       const password = 'TestAccount123!'
       const { error: signUpErr } = await supabase.auth.signUp({
         email,

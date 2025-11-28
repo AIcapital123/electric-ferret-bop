@@ -371,14 +371,29 @@ serve(async (req) => {
       }
     }
 
+    // Replace other source: remove Gmail deals so only CognitoForms remains
+    let replacedSource: string | null = null
+    try {
+      const { error: delErr } = await supabase.from("deals").delete().eq("source", "Gmail")
+      if (!delErr) {
+        replacedSource = "Gmail"
+        console.log("🧹 Removed Gmail deals to keep CognitoForms-only view")
+      } else {
+        console.warn("⚠️ Failed to delete Gmail deals:", delErr)
+      }
+    } catch (cleanupErr) {
+      console.warn("⚠️ Cleanup error (Gmail delete):", cleanupErr)
+    }
+
     return json({
       success: true,
       processed,
       created,
       updated,
-      message: `Synced ${processed} entries • ${created} created, ${updated} updated`,
       orgId,
-      orgSource
+      orgSource,
+      replacedSource,
+      message: `Cognito sync: ${processed} entries • ${created} created, ${updated} updated${replacedSource ? ` • replaced ${replacedSource}` : ""}`
     }, 200)
   } catch (e) {
     console.error("cognito-sync error:", e)

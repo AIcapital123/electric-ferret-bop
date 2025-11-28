@@ -189,12 +189,29 @@ serve(async (req) => {
 
     console.log(`✅ Sync complete: ${processedCount} new, ${skippedCount} skipped`);
 
+    // Replace other source: remove CognitoForms deals so only Gmail remains
+    let replacedSource: string | null = null;
+    try {
+      const { error: delErr } = await supabase.from("deals").delete().eq("source", "CognitoForms");
+      if (!delErr) {
+        replacedSource = "CognitoForms";
+        console.log("🧹 Removed CognitoForms deals to keep Gmail-only view");
+      } else {
+        console.warn("⚠️ Failed to delete CognitoForms deals:", delErr);
+      }
+    } catch (cleanupErr) {
+      console.warn("⚠️ Cleanup error (CognitoForms delete):", cleanupErr);
+    }
+
     return json(
       {
         success: true,
         processed: processedCount,
         skipped: skippedCount,
         total: messages.length,
+        replacedSource,
+        message:
+          `Gmail sync: ${processedCount} new, ${skippedCount} skipped${replacedSource ? ` • replaced ${replacedSource}` : ""}`,
       },
       200
     );

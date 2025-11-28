@@ -13,6 +13,7 @@ type SyncBody = {
   endDate?: string
   limit?: number
   action?: "bulk_sync" | "webhook" | "diagnostic" | string
+  orgId?: string | null
 }
 
 type CognitoForm = {
@@ -139,7 +140,8 @@ async function fetchJSON(url: string, apiKey: string) {
   const res = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
-    throw new Error((data && (data.Message || data.error)) || `HTTP ${res.status}`)
+    const msg = (data && (data.Message || data.error)) || `HTTP ${res.status}`
+    throw new Error(`${msg} at ${url}`)
   }
   return data
 }
@@ -152,17 +154,20 @@ function slugify(s: string) {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '').trim()
 }
 
-async function resolveOrgId(provided: string, apiKey: string): Promise<string | null> {
+async function resolveOrgIdByNameOrSlug(provided: string, apiKey: string): Promise<string | null> {
   if (!provided) return null
-  if (isGuidLike(provided)) return provided
-  // Try to resolve by name/slug via the Organizations endpoint (may not be allowed for integration tokens)
-  const orgsUrl = `https://www.cognitoforms.com/api/v1/organizations`
-  const orgs = await fetchJSON(orgsUrl, apiKey) as CognitoOrg[]
-  if (!Array.isArray(orgs)) return null
-  const target = slugify(provided)
-  const found = orgs.find(o => o.Name === provided) 
-    || orgs.find(o => slugify(o.Name) === target)
-  return found?.Id ?? null
+  try {
+    const orgsUrl = `https://www.cognitoforms.com/api/v1/organizations`
+    const orgs = await fetchJSON(orgsUrl, apiKey) as CognitoOrg[]
+    if (!Array.isArray(orgs)) return null
+    const target = slugify(provided)
+    const found = orgs.find(o => o.Name === provided) 
+      || orgs.find(o => slugify(o.Name) === target)
+    return found?.Id ?? null
+  } catch (e) {
+    console.warn("cognito-sync: Unable to list organizations to resolve name/slug; your token may not allow org listing.", { error: (e as Error).message })
+    return null
+  }
 }
 
 // Decode base64url without verifying (we only need organizationId claim)
@@ -172,14 +177,34 @@ function base64UrlDecode(str: string): string {
   return atob(b64)
 }
 
+function extractOrgIdFromJwtPayload(payload: Record<string, any>): string | null {
+  const candidates = [
+    "organizationId","OrganizationId",
+    "organization","Organization",
+    "orgId","OrgId",
+    "org","Org"
+  ]
+
+  for (const key of candidates) {
+    const val = payload[key]
+    if (!val) continue
+    if (typeof val === "string" && isGuidLike(val)) return val
+    if (typeof val === "object" && val !== null) {
+      const maybeId = (val as any).Id || (val as any).id
+      if (typeof maybeId === "string" && isGuidLike(maybeId)) return maybeId
+    }
+  }
+  return null
+}
+
 function getOrgIdFromJwt(token: string | null | undefined): string | null {
   if (!token) return null
   const parts = token.split('.')
   if (parts.length < 2) return null
   try {
     const payloadJson = base64UrlDecode(parts[1])
-    const payload = JSON.parse(payloadJson) as { organizationId?: string }
-    const id = payload?.organizationId
+    const payload = JSON.parse(payloadJson) as Record<string, any>
+    const id = extractOrgIdFromJwtPayload(payload)
     return id && isGuidLike(id) ? id : null
   } catch {
     return null
@@ -195,7 +220,7 @@ serve(async (req) => {
     const supabaseUrl = (Deno.env.get("SUPABASE_URL") ?? "").trim()
     const serviceRoleKey = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim()
     const apiKey = ((Deno.env.get("COGNITO_API_KEY") ?? Deno.env.get("COGNITO_API_TOKEN") ?? "") as string).trim()
-    const orgIdRaw = ((Deno.env.get("COGNITO_ORG_ID") ?? "") as string).trim()
+    const orgIdRawEnv = ((Deno.env.get("COGNITO_ORG_ID") ?? "") as string).trim()
 
     if (!supabaseUrl || !serviceRoleKey) {
       console.error("cognito-sync: Missing Supabase env SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY")
@@ -210,20 +235,46 @@ serve(async (req) => {
     const body: SyncBody = await req.json().catch(() => ({}))
     const limit = Math.min(Math.max(Number(body.limit ?? 100), 1), 500)
 
-    // Prefer organizationId from integration token; fall back to provided GUID; then name/slug resolution
+    // Build orgId candidates in priority order:
+    // 1) orgId from request body (explicit override)
+    // 2) organizationId from integration token
+    // 3) env GUID (COGNITO_ORG_ID if guid)
+    // 4) env name/slug resolution (COGNITO_ORG_ID if not guid)
+    const explicitOrgId = (body.orgId && typeof body.orgId === "string" ? body.orgId.trim() : null) || null
     const orgFromToken = getOrgIdFromJwt(apiKey)
-    let orgId: string | null = null
-    let orgSource: "token_claim" | "env_guid" | "resolved_name" | "unknown" = "unknown"
+    const envGuid = isGuidLike(orgIdRawEnv) ? orgIdRawEnv : null
+    const resolvedName = envGuid ? null : await resolveOrgIdByNameOrSlug(orgIdRawEnv, apiKey)
 
-    if (orgFromToken) {
-      orgId = orgFromToken
-      orgSource = "token_claim"
-    } else if (isGuidLike(orgIdRaw)) {
-      orgId = orgIdRaw
-      orgSource = "env_guid"
-    } else {
-      orgId = await resolveOrgId(orgIdRaw, apiKey)
-      orgSource = orgId ? "resolved_name" : "unknown"
+    const candidates: Array<{ id: string, source: "explicit" | "token_claim" | "env_guid" | "resolved_name" }> = []
+    if (explicitOrgId && isGuidLike(explicitOrgId)) candidates.push({ id: explicitOrgId, source: "explicit" })
+    if (orgFromToken) candidates.push({ id: orgFromToken, source: "token_claim" })
+    if (envGuid) candidates.push({ id: envGuid, source: "env_guid" })
+    if (resolvedName) candidates.push({ id: resolvedName, source: "resolved_name" })
+
+    if (candidates.length === 0) {
+      console.error("cognito-sync: Unable to resolve organization identifier", { providedEnv: orgIdRawEnv })
+      return json({ success: false, error: "Invalid CognitoForms organization identifier (no valid GUID from token, body, or env/slug)" }, 400)
+    }
+
+    // Try each candidate until forms listing succeeds
+    let orgId: string | null = null
+    let orgSource: "explicit" | "token_claim" | "env_guid" | "resolved_name" | "unknown" = "unknown"
+    let forms: CognitoForm[] = []
+
+    for (const c of candidates) {
+      const formsUrl = `https://www.cognitoforms.com/api/v1/organizations/${c.id}/forms`
+      try {
+        const fetched = await fetchJSON(formsUrl, apiKey) as CognitoForm[]
+        if (Array.isArray(fetched)) {
+          orgId = c.id
+          orgSource = c.source
+          forms = fetched
+          break
+        }
+      } catch (e) {
+        console.warn("cognito-sync: Failed to list forms for candidate orgId", { candidate: c, error: (e as Error).message })
+        // continue to next candidate
+      }
     }
 
     // Log diagnostic info (no secrets)
@@ -231,17 +282,22 @@ serve(async (req) => {
       orgId,
       orgSource,
       hasOrgInToken: !!orgFromToken,
+      candidatesCount: candidates.length,
     })
 
     if (!orgId) {
-      console.error("cognito-sync: Unable to resolve organization identifier", { provided: orgIdRaw, fromToken: !!orgFromToken })
-      return json({ success: false, error: "Invalid CognitoForms organization identifier (token lacks organizationId and name/slug could not be resolved)" }, 400)
+      return json({
+        success: false,
+        error: "Unable to access forms for any resolved organization ID",
+        details: {
+          hasOrgInToken: !!orgFromToken,
+          candidates: candidates.map(c => c.source),
+        }
+      }, 404)
     }
 
     // If diagnostic mode, return org info and forms count without running a full sync
     if (body.action === "diagnostic") {
-      const formsUrl = `https://www.cognitoforms.com/api/v1/organizations/${orgId}/forms`
-      const forms: CognitoForm[] = await fetchJSON(formsUrl, apiKey)
       return json({
         success: true,
         diagnostic: true,
@@ -251,9 +307,6 @@ serve(async (req) => {
         formsCount: Array.isArray(forms) ? forms.length : 0,
       }, 200)
     }
-
-    const formsUrl = `https://www.cognitoforms.com/api/v1/organizations/${orgId}/forms`
-    const forms: CognitoForm[] = await fetchJSON(formsUrl, apiKey)
 
     const selectedForms = Array.isArray(body.formIds) && body.formIds.length > 0
       ? forms.filter((f) => body.formIds!.includes(String(f.Id)))
@@ -324,6 +377,8 @@ serve(async (req) => {
       created,
       updated,
       message: `Synced ${processed} entries • ${created} created, ${updated} updated`,
+      orgId,
+      orgSource
     }, 200)
   } catch (e) {
     console.error("cognito-sync error:", e)

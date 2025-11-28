@@ -32,6 +32,7 @@ export function DealsDashboard() {
   const [page, setPage] = useState<number>(1)
   const [appliedPage, setAppliedPage] = useState<number>(1)
   const [newDealsCount, setNewDealsCount] = useState<number>(0)
+  const [datePreset, setDatePreset] = useState<PresetKey>('1m')
 
   const reminderTimersRef = useRef<Record<string, number>>({})
   const queryClient = useQueryClient()
@@ -47,6 +48,8 @@ export function DealsDashboard() {
     }
     setFilters((prev) => ({ ...prev, ...preset }))
     setAppliedFilters((prev) => ({ ...prev, ...preset }))
+    // Ensure the select shows "1 month ago" initially
+    setDatePreset('1m')
   }, [])
 
   const { data, isLoading, error } = useDeals(appliedFilters, appliedPage)
@@ -71,8 +74,18 @@ export function DealsDashboard() {
   }
 
   const resetFilters = () => {
-    setFilters({})
+    // Reset to default: last 1 month
+    const today = new Date()
+    const start = subMonths(today, 1)
+    const preset = {
+      dateRange: {
+        start: format(start, 'yyyy-MM-dd'),
+        end: format(today, 'yyyy-MM-dd')
+      }
+    }
+    setFilters(preset)
     setPage(1)
+    setDatePreset('1m')
   }
 
   const applyRefresh = () => {
@@ -206,12 +219,11 @@ export function DealsDashboard() {
             <div className="md:col-span-2 lg:col-span-2">
               <label className="text-sm font-medium mb-2 block">{t('date_range')}</label>
               <Select
-                value={filters.dateRange ? 'custom' : '1m'}
+                value={datePreset}
                 onValueChange={(value) => {
-                  if (value === 'none') {
-                    applyPreset('none')
-                  } else if (value === '1w' || value === '2w' || value === '1m' || value === '2m' || value === '3m' || value === '6m' || value === '12m' || value === '18m' || value === '24m') {
-                    applyPreset(value as any)
+                  if (value === '1w' || value === '2w' || value === '1m' || value === '2m' || value === '3m' || value === '6m' || value === '12m' || value === '18m' || value === '24m') {
+                    setDatePreset(value as PresetKey)
+                    applyPreset(value as PresetKey)
                   }
                 }}
               >

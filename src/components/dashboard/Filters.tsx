@@ -6,10 +6,6 @@ type FiltersProps = {
   setDateRange: (v: string) => void;
   loanType: string;
   setLoanType: (v: string) => void;
-  minAmount: string;
-  setMinAmount: (v: string) => void;
-  maxAmount: string;
-  setMaxAmount: (v: string) => void;
   statusFilter: string;
   setStatusFilter: (v: string) => void;
   searchTerm: string;
@@ -27,10 +23,6 @@ export default function Filters({
   setDateRange,
   loanType,
   setLoanType,
-  minAmount,
-  setMinAmount,
-  maxAmount,
-  setMaxAmount,
   statusFilter,
   setStatusFilter,
   searchTerm,
@@ -80,28 +72,6 @@ export default function Filters({
                 <option key={type} value={type}>{type}</option>
               ))}
             </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Min Amount</label>
-            <input
-              type="number"
-              placeholder="Min Amount"
-              value={minAmount}
-              onChange={(e) => setMinAmount(e.target.value)}
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Max Amount</label>
-            <input
-              type="number"
-              placeholder="Max Amount"
-              value={maxAmount}
-              onChange={(e) => setMaxAmount(e.target.value)}
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
-            />
           </div>
 
           <div>

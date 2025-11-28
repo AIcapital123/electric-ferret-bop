@@ -27,8 +27,26 @@ import { formatInTimeZone } from 'date-fns-tz'
 import CsvExportButton from '@/components/deals/csv-export-button'
 
 export function DealsDashboard() {
-  const [filters, setFilters] = useState<DealFilters>({})
-  const [appliedFilters, setAppliedFilters] = useState<DealFilters>({})
+  const [filters, setFilters] = useState<DealFilters>(() => {
+    const today = new Date()
+    const start = subMonths(today, 1)
+    return {
+      dateRange: {
+        start: format(start, 'yyyy-MM-dd'),
+        end: format(today, 'yyyy-MM-dd')
+      }
+    }
+  })
+  const [appliedFilters, setAppliedFilters] = useState<DealFilters>(() => {
+    const today = new Date()
+    const start = subMonths(today, 1)
+    return {
+      dateRange: {
+        start: format(start, 'yyyy-MM-dd'),
+        end: format(today, 'yyyy-MM-dd')
+      }
+    }
+  })
   const [page, setPage] = useState<number>(1)
   const [appliedPage, setAppliedPage] = useState<number>(1)
   const [newDealsCount, setNewDealsCount] = useState<number>(0)
@@ -36,21 +54,6 @@ export function DealsDashboard() {
 
   const reminderTimersRef = useRef<Record<string, number>>({})
   const queryClient = useQueryClient()
-
-  useEffect(() => {
-    const today = new Date()
-    const start = subMonths(today, 1)
-    const preset = {
-      dateRange: {
-        start: format(start, 'yyyy-MM-dd'),
-        end: format(today, 'yyyy-MM-dd')
-      }
-    }
-    setFilters((prev) => ({ ...prev, ...preset }))
-    setAppliedFilters((prev) => ({ ...prev, ...preset }))
-    // Ensure the select shows "1 month ago" initially
-    setDatePreset('1m')
-  }, [])
 
   const { data, isLoading, error } = useDeals(appliedFilters, appliedPage)
   const deals = data?.deals || []
@@ -220,6 +223,7 @@ export function DealsDashboard() {
               <label className="text-sm font-medium mb-2 block">{t('date_range')}</label>
               <Select
                 value={datePreset}
+                defaultValue="1m"
                 onValueChange={(value) => {
                   if (value === '1w' || value === '2w' || value === '1m' || value === '2m' || value === '3m' || value === '6m' || value === '12m' || value === '18m' || value === '24m') {
                     setDatePreset(value as PresetKey)

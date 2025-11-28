@@ -46,7 +46,7 @@ export function AppSidebar() {
             <SidebarMenuItem key={item.path}>
               <SidebarMenuButton
                 onClick={() => navigate(item.path)}
-                isActive={location.pathname === item.path}
+                isActive={item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path)}
               >
                 <item.icon className="h-4 w-4" />
                 <span>{item.title}</span>

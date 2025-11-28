@@ -14,6 +14,12 @@ export default function RequireAuth({ children }: Props) {
   useEffect(() => {
     let mounted = true
 
+    // DEMO MODE: bypass auth entirely
+    if (localStorage.getItem('demo_mode') === 'true') {
+      setChecking(false)
+      return
+    }
+
     const check = async () => {
       const { data: { session } } = await supabase.auth.getSession()
       if (!mounted) return

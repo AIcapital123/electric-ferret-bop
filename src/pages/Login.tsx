@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
+import { ensureDemoDeals } from '@/lib/demo-data'
 
 export default function Login() {
   const navigate = useNavigate()
@@ -14,66 +15,13 @@ export default function Login() {
 
   const handleUseTestAccount = async () => {
     try {
-      const { data, error } = await supabase.functions.invoke('create-test-account', {
-        method: 'POST',
-      })
-      if (!error) {
-        const resp = data as {
-          success: boolean
-          session?: { access_token: string; refresh_token: string }
-          email?: string
-          password?: string
-          error?: string
-        }
-
-        // If edge function returned tokens, set session directly
-        if (resp?.success && resp.session?.access_token && resp.session?.refresh_token) {
-          const { error: setErr } = await supabase.auth.setSession({
-            access_token: resp.session.access_token,
-            refresh_token: resp.session.refresh_token,
-          })
-          if (!setErr) {
-            toast.success('Signed in with Test Account')
-            navigate(redirectTo, { replace: true })
-            return
-          }
-        }
-
-        // If it returned credentials, sign in client-side
-        if (resp?.success && resp.email && resp.password) {
-          const { error: signInErr } = await supabase.auth.signInWithPassword({
-            email: resp.email,
-            password: resp.password,
-          })
-          if (!signInErr) {
-            toast.success('Signed in with Test Account')
-            navigate(redirectTo, { replace: true })
-            return
-          }
-        }
-      }
-
-      // Fallback: client-side sign up & sign in (only if previous steps failed)
-      const email = `demo.${Date.now()}@example.com`
-      const password = 'TestAccount123!'
-      const { error: signUpErr } = await supabase.auth.signUp({
-        email,
-        password,
-        options: { data: { full_name: 'Demo User', source: 'test_data' } }
-      })
-      if (signUpErr) {
-        toast.error(signUpErr.message || 'Failed to sign up test user')
-        return
-      }
-      const { error: signInErr } = await supabase.auth.signInWithPassword({ email, password })
-      if (signInErr) {
-        toast.error(signInErr.message || 'Failed to sign in test user')
-        return
-      }
-      toast.success('Signed in with Test Account')
+      // Turn on demo mode and ensure sample data exists, then go straight to the dashboard
+      localStorage.setItem('demo_mode', 'true')
+      ensureDemoDeals()
+      toast.success('Demo mode enabled — 50 sample leads loaded')
       navigate(redirectTo, { replace: true })
     } catch (e: any) {
-      toast.error(e?.message || 'Failed to use test account')
+      toast.error(e?.message || 'Failed to start demo')
     }
   }
 

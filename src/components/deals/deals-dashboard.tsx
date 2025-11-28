@@ -60,7 +60,7 @@ export function DealsDashboard() {
 
   useEffect(() => {
     setPage(1)
-  }, [filters.loanType, filters.minAmount, filters.maxAmount, filters.status, filters.dateRange?.start, filters.dateRange?.end])
+  }, [filters.loanType, filters.status, filters.dateRange?.start, filters.dateRange?.end])
 
   const handleFilterChange = (key: keyof DealFilters, value: any) => {
     const newFilters = { ...filters, [key]: value }
@@ -256,26 +256,6 @@ export function DealsDashboard() {
                   <SelectItem value="Other">Other</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
-
-            <div>
-              <label className="text-sm font-medium mb-2 block">{t('min_amount')}</label>
-              <Input
-                type="number"
-                placeholder={t('min_amount')}
-                value={filters.minAmount || ''}
-                onChange={(e) => handleFilterChange('minAmount', e.target.value ? Number(e.target.value) : undefined)}
-              />
-            </div>
-
-            <div>
-              <label className="text-sm font-medium mb-2 block">{t('max_amount')}</label>
-              <Input
-                type="number"
-                placeholder={t('max_amount')}
-                value={filters.maxAmount || ''}
-                onChange={(e) => handleFilterChange('maxAmount', e.target.value ? Number(e.target.value) : undefined)}
-              />
             </div>
 
             <div>

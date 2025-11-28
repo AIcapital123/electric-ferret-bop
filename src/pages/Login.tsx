@@ -21,8 +21,12 @@ export default function Login() {
         const resp = data as {
           success: boolean
           session?: { access_token: string; refresh_token: string }
+          email?: string
+          password?: string
           error?: string
         }
+
+        // If edge function returned tokens, set session directly
         if (resp?.success && resp.session?.access_token && resp.session?.refresh_token) {
           const { error: setErr } = await supabase.auth.setSession({
             access_token: resp.session.access_token,
@@ -34,9 +38,22 @@ export default function Login() {
             return
           }
         }
+
+        // If it returned credentials, sign in client-side
+        if (resp?.success && resp.email && resp.password) {
+          const { error: signInErr } = await supabase.auth.signInWithPassword({
+            email: resp.email,
+            password: resp.password,
+          })
+          if (!signInErr) {
+            toast.success('Signed in with Test Account')
+            navigate(redirectTo, { replace: true })
+            return
+          }
+        }
       }
 
-      // Fallback: client-side sign up & sign in
+      // Fallback: client-side sign up & sign in (only if previous steps failed)
       const email = `demo-${Date.now()}@test.gokapital-crm.com`
       const password = 'TestAccount123!'
       const { error: signUpErr } = await supabase.auth.signUp({

@@ -15,6 +15,8 @@ type CreateTestAccountResponse = {
     token_type?: string
     user?: unknown
   }
+  email?: string
+  password?: string
   error?: string
 }
 
@@ -76,12 +78,12 @@ serve(async (req) => {
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? ""
 
-    if (!supabaseUrl || !serviceRoleKey || !anonKey) {
+    if (!supabaseUrl || !serviceRoleKey) {
       return json({ success: false, error: "Missing Supabase env vars" }, 500)
     }
 
     const admin = createClient(supabaseUrl, serviceRoleKey)
-    const publicClient = createClient(supabaseUrl, anonKey)
+    const publicClient = anonKey ? createClient(supabaseUrl, anonKey) : null
 
     // Create unique test user
     const email = `demo-${Date.now()}@test.gokapital-crm.com`
@@ -118,28 +120,35 @@ serve(async (req) => {
       return json({ success: false, error: insertErr.message || "Failed to insert deals" }, 500)
     }
 
-    // Sign the user in to get session (access/refresh tokens)
-    const { data: signInData, error: signInErr } = await publicClient.auth.signInWithPassword({
+    // Try to sign the user in to get session tokens if anon key exists
+    if (publicClient) {
+      const { data: signInData, error: signInErr } = await publicClient.auth.signInWithPassword({
+        email,
+        password,
+      })
+      if (!signInErr && signInData.session) {
+        const sess = signInData.session
+        return json({
+          success: true,
+          session: {
+            access_token: sess.access_token,
+            refresh_token: sess.refresh_token,
+            expires_at: (sess.expires_at as number | null) ?? undefined,
+            token_type: "bearer",
+            user: sess.user,
+          },
+          email,
+          password,
+        }, 200)
+      }
+    }
+
+    // If anon key missing or sign-in failed, still return credentials for client-side sign in
+    return json({
+      success: true,
       email,
       password,
-    })
-
-    if (signInErr || !signInData.session) {
-      return json({ success: false, error: signInErr?.message || "Failed to sign in test user" }, 500)
-    }
-
-    const sess = signInData.session
-    const response: CreateTestAccountResponse = {
-      success: true,
-      session: {
-        access_token: sess.access_token,
-        refresh_token: sess.refresh_token,
-        expires_at: (sess.expires_at as number | null) ?? undefined,
-        token_type: "bearer",
-        user: sess.user,
-      },
-    }
-    return json(response, 200)
+    }, 200)
   } catch (e) {
     console.error("create-test-account error:", e)
     return json({ success: false, error: (e as Error).message }, 500)

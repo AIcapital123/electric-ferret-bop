@@ -8,14 +8,19 @@ const corsHeaders = {
 }
 
 type SyncBody = {
-  formIds?: string[]        // optional: limit to specific form IDs
-  startDate?: string        // YYYY-MM-DD
-  endDate?: string          // YYYY-MM-DD
-  limit?: number            // max entries per form (1-500)
+  formIds?: string[]
+  startDate?: string
+  endDate?: string
+  limit?: number
   action?: "bulk_sync" | "webhook" | string
 }
 
 type CognitoForm = {
+  Id: string
+  Name: string
+}
+
+type CognitoOrg = {
   Id: string
   Name: string
 }
@@ -139,6 +144,28 @@ async function fetchJSON(url: string, apiKey: string) {
   return data
 }
 
+function isGuidLike(s: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s)
+}
+
+function slugify(s: string) {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, '').trim()
+}
+
+async function resolveOrgId(provided: string, apiKey: string): Promise<string | null> {
+  if (!provided) return null
+  if (isGuidLike(provided)) return provided
+  // Try to resolve by name/slug
+  const orgsUrl = `https://www.cognitoforms.com/api/v1/organizations`
+  const orgs = await fetchJSON(orgsUrl, apiKey) as CognitoOrg[]
+  if (!Array.isArray(orgs)) return null
+  const target = slugify(provided)
+  // match by exact Name or slug of Name
+  const found = orgs.find(o => o.Name === provided) 
+    || orgs.find(o => slugify(o.Name) === target)
+  return found?.Id ?? null
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders })
@@ -147,17 +174,22 @@ serve(async (req) => {
   try {
     const supabaseUrl = (Deno.env.get("SUPABASE_URL") ?? "").trim()
     const serviceRoleKey = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim()
-    // Accept either COGNITO_API_KEY or COGNITO_API_TOKEN
     const apiKey = ((Deno.env.get("COGNITO_API_KEY") ?? Deno.env.get("COGNITO_API_TOKEN") ?? "") as string).trim()
-    const orgId = ((Deno.env.get("COGNITO_ORG_ID") ?? "") as string).trim()
+    const orgIdRaw = ((Deno.env.get("COGNITO_ORG_ID") ?? "") as string).trim()
 
     if (!supabaseUrl || !serviceRoleKey) {
       console.error("cognito-sync: Missing Supabase env SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY")
       return json({ success: false, error: "Supabase env not set (SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing)" }, 500)
     }
-    if (!apiKey || !orgId) {
-      console.error("cognito-sync: Missing CognitoForms secrets", { hasApiKey: !!apiKey, hasOrgId: !!orgId })
-      return json({ success: false, error: "CognitoForms secrets missing (COGNITO_API_KEY/COGNITO_API_TOKEN or COGNITO_ORG_ID)" }, 500)
+    if (!apiKey) {
+      console.error("cognito-sync: Missing CognitoForms API key secret")
+      return json({ success: false, error: "CognitoForms secret missing (COGNITO_API_KEY or COGNITO_API_TOKEN)" }, 500)
+    }
+
+    const orgId = await resolveOrgId(orgIdRaw, apiKey)
+    if (!orgId) {
+      console.error("cognito-sync: Unable to resolve organization identifier", { provided: orgIdRaw })
+      return json({ success: false, error: "Invalid CognitoForms organization identifier (set COGNITO_ORG_ID to GUID or valid organization name)" }, 400)
     }
 
     const supabase = createClient(supabaseUrl, serviceRoleKey)

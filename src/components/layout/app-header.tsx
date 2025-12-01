@@ -32,6 +32,53 @@ export function AppHeader() {
     showSuccess(val ? 'Saved Cognito organization override' : 'Cleared Cognito organization override')
   }
 
+  const handleOrgDiagnostic = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) throw new Error('Not authenticated')
+      const orgOverride = orgIdInput.trim() || undefined
+
+      logError({
+        source: 'client',
+        code: 'cognito_diagnostic_start',
+        message: 'Running CognitoForms diagnostic',
+        details: { orgOverride: !!orgOverride }
+      })
+
+      const { error, data } = await supabase.functions.invoke('cognito-sync', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        body: { action: 'diagnostic', orgId: orgOverride }
+      })
+      if (error) throw error
+
+      const orgId = (data as any)?.orgId ?? null
+      const orgSource = (data as any)?.orgSource ?? 'unknown'
+      const formsCount = (data as any)?.formsCount ?? 0
+      const hasOrgInToken = !!(data as any)?.hasOrgInToken
+
+      logError({
+        source: 'client',
+        code: 'cognito_diagnostic_success',
+        message: 'Cognito diagnostic completed',
+        details: { orgId, orgSource, formsCount, hasOrgInToken }
+      })
+
+      if (!orgId || formsCount === 0) {
+        showError('Cognito diagnostic: org not accessible or no forms found — check the GUID or token permissions.')
+      } else {
+        showSuccess(`Cognito diagnostic: org ${orgSource} • ${formsCount} forms accessible`)
+      }
+    } catch (err: any) {
+      logError({
+        source: 'client',
+        code: 'cognito_diagnostic_error',
+        message: err?.message || 'Cognito diagnostic failed',
+        details: { stack: err?.stack }
+      })
+      showError(err?.message || 'Cognito diagnostic failed')
+    }
+  }
+
   const handleManualSync = async () => {
     setIsSyncingCognito(true)
     try {
@@ -146,6 +193,10 @@ export function AppHeader() {
           <Button variant="outline" size="sm" onClick={saveOrgId} title="Save org override">
             <Save className="h-4 w-4 mr-1" />
             Save
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleOrgDiagnostic} title="Test org access">
+            <RefreshCw className="h-4 w-4 mr-1" />
+            Test Org
           </Button>
         </div>
         <Button

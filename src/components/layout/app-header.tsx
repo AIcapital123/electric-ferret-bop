@@ -21,16 +21,19 @@ export function AppHeader() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) throw new Error('Not authenticated')
 
+      // Optional override: supply the Cognito organization GUID from frontend env
+      const orgOverride = (import.meta.env.VITE_COGNITO_ORG_ID as string | undefined)?.trim()
+
       logError({
         source: 'client',
         code: 'cognito_sync_start',
         message: 'Starting CognitoForms sync',
-        details: { days: 30 }
+        details: { days: 30, orgOverride: !!orgOverride }
       })
 
       const { error, data } = await supabase.functions.invoke('cognito-sync', {
         headers: { Authorization: `Bearer ${session.access_token}` },
-        body: { days: 30, action: 'bulk_sync' }
+        body: { days: 30, action: 'bulk_sync', orgId: orgOverride || undefined }
       })
       if (error) throw error
       const processed = (data as any)?.processed ?? 0

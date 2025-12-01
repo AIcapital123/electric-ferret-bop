@@ -1,19 +1,36 @@
 import { SidebarTrigger } from '@/components/ui/sidebar'
 import { Button } from '@/components/ui/button'
-import { RefreshCw, Settings, Cloud, Mail } from 'lucide-react'
-import { useState } from 'react'
+import { RefreshCw, Settings, Cloud, Mail, Save } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { useLanguage } from '@/components/language/language-provider'
 import { LanguageToggle } from '@/components/language/language-toggle'
 import { supabase } from '@/lib/supabase'
 import { useNavigate } from 'react-router-dom'
 import { logError } from '@/lib/error-log'
 import { showSuccess, showError } from '@/utils/toast'
+import { Input } from '@/components/ui/input'
 
 export function AppHeader() {
   const [isSyncingCognito, setIsSyncingCognito] = useState(false)
   const [isSyncingGmail, setIsSyncingGmail] = useState(false)
+  const [orgIdInput, setOrgIdInput] = useState<string>('')
+
+  useEffect(() => {
+    const fromEnv = (import.meta.env.VITE_COGNITO_ORG_ID as string | undefined)?.trim() || ''
+    const fromStorage = (typeof window !== 'undefined' && window.localStorage.getItem('cognito_org_id')) || ''
+    setOrgIdInput((fromStorage || fromEnv || '').trim())
+  }, [])
+
   const { t } = useLanguage()
   const navigate = useNavigate()
+
+  const saveOrgId = () => {
+    const val = orgIdInput.trim()
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('cognito_org_id', val)
+    }
+    showSuccess(val ? 'Saved Cognito organization override' : 'Cleared Cognito organization override')
+  }
 
   const handleManualSync = async () => {
     setIsSyncingCognito(true)
@@ -21,8 +38,7 @@ export function AppHeader() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) throw new Error('Not authenticated')
 
-      // Optional override: supply the Cognito organization GUID from frontend env
-      const orgOverride = (import.meta.env.VITE_COGNITO_ORG_ID as string | undefined)?.trim()
+      const orgOverride = orgIdInput.trim() || undefined
 
       logError({
         source: 'client',
@@ -33,7 +49,7 @@ export function AppHeader() {
 
       const { error, data } = await supabase.functions.invoke('cognito-sync', {
         headers: { Authorization: `Bearer ${session.access_token}` },
-        body: { days: 30, action: 'bulk_sync', orgId: orgOverride || undefined }
+        body: { days: 30, action: 'bulk_sync', orgId: orgOverride }
       })
       if (error) throw error
       const processed = (data as any)?.processed ?? 0
@@ -120,6 +136,18 @@ export function AppHeader() {
       </div>
       <div className="flex items-center gap-2">
         <LanguageToggle />
+        <div className="flex items-center gap-2">
+          <Input
+            value={orgIdInput}
+            onChange={(e) => setOrgIdInput(e.target.value)}
+            placeholder="Cognito org GUID or name"
+            className="w-56"
+          />
+          <Button variant="outline" size="sm" onClick={saveOrgId} title="Save org override">
+            <Save className="h-4 w-4 mr-1" />
+            Save
+          </Button>
+        </div>
         <Button
           onClick={handleManualSync}
           disabled={isSyncingCognito}

@@ -20,6 +20,7 @@ const SettingsPage = lazy(() => import("./pages/Settings"))
 const Login = lazy(() => import("./pages/Login"))
 const HelpPage = lazy(() => import("./pages/Help"))
 const TasksPage = lazy(() => import("./pages/Tasks"))
+const HealthPage = lazy(() => import("./pages/Health"))
 
 const WithAssistant = ({ children }: { children: React.ReactNode }) => (
   <>
@@ -45,6 +46,7 @@ const App = () => (
               <Route path="/deals/:id" element={<RequireAuth><WithAssistant><DealDetailPage /></WithAssistant></RequireAuth>} />
               <Route path="/tasks" element={<RequireAuth><WithAssistant><TasksPage /></WithAssistant></RequireAuth>} />
               <Route path="/help" element={<RequireAuth><WithAssistant><HelpPage /></WithAssistant></RequireAuth>} />
+              <Route path="/health" element={<RequireAuth><WithAssistant><HealthPage /></WithAssistant></RequireAuth>} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>
